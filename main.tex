@@ -22,7 +22,7 @@
 \usepackage{amsmath}
 % Diagrams
 \usepackage{tikz}
-\usetikzlibrary{shadows,fit,backgrounds,calc}
+\usetikzlibrary{calc,positioning,arrows.meta,shapes,fit}
 
 \usepackage{pgfplots}
 \usepgfplotslibrary{groupplots}
@@ -57,6 +57,7 @@
 
 % Hrefs
 \usepackage{hyperref}
+\usepackage{caption} % makes clicking figure \ref navigate to the top of the figure instead of the caption
 % End hrefs
 
 \usepackage{biblatex}
@@ -123,6 +124,8 @@
 % koniec definicji
 
 \begin{document}
+\renewcommand\textfraction{0}
+
 \maketitle
 
 %tu idzie streszczenie na strone poczatkowa
@@ -136,16 +139,85 @@ TODO
 
 \chapter{Introduction}
 
+The objective of this project is to create safe and efficient sandbox to execute short running untrusted programs, as well as complex programs e.g. compiler of a C++ program. All done with robust isolation and minimal overhead (the order of milliseconds).
+
+The primary use case is an online judge whose job is to
+\begin{itemize}
+    \item compile user-provided source code
+    \item run it several times (even hundreds) with different inputs
+    \item verify the output correctness usually by running another program
+\end{itemize}
+All of these tasks require at least ensuring that
+\begin{itemize}
+    \item real time is limited
+    \item CPU time is limited
+    \item memory is limited
+    \item disk space is limited
+    \item file access is isolated
+    \item network is isolated or disabled
+\end{itemize}
+Also statistics about the executed program are required
+\begin{itemize}
+    \item real time used
+    \item CPU time used
+    \item peek memory usage
+\end{itemize}
+All of that is to be done as an unprivileged user.
+
+Such combination (especially minimal overhead and recording the peek memory usage) is very uncommon e.g. Firejail (TODO: reference) does not provide memory statistics. LXC (TODO: reference) and Docker require privileges to create a container. Thereby, the listed constraints require a new solution.
+
+\chapter{Useful Linux kernel mechanisms}
+
 TODO
 
-\printbibliography[heading=bibintoc]
+\section{User namespaces}
+TODO
+
+\section{PID namespaces}
+TODO
+
+\section{Mount namespaces}
+TODO
+
+\section{cgroups}
+TODO
+
+\section{cgroup namespaces}
+TODO
+
+\section{Capabilities}
+TODO
+
+\section{ptrace}
+TODO
+
+\section{seccomp}
+TODO
+
+\chapter{Sandbox design}
+
+Sandbox is spawned as a separate process and this process executes sandboxing requests e.g. execute program A with configuration B. Communication between the caller and the sandbox server process uses UNIX domain socket. Errors regarding handling a specific request are reported through the UNIX socket as a response to the sandbox request. A separate anonymous file (created using \texttt{memfd\_create()}) is used for reporting fatal errors of the sandbox server process - it fills the file with an error description and dies afterwards. Such separation allows for a simpler protocol to be used for communicating through the UNIX socket e.g. reporting errors about writing to the socket are reported using the anonymous file instead of the socket itself. Figure \ref{fig:caller_to_sandbox_server_communication} illustrates the design.
+
+\begin{figure}[h]
+\tikzset{>=latex} % set latex arrow tip
+\centering
+\begin{tikzpicture}[align=center]
+    \node [draw] (errors) {anonymous file\\for errors};
+    % \node [draw, above left=1.5cm of errors, minimum height=1.9777087639995352cm, minimum width=3.2cm] (caller_thread) {caller thread};
+    \node [draw, above left=1.5cm of errors, minimum height=1.9777087639995352cm, minimum width=3.2cm] (caller) {caller};
+    \node [draw, above right=1.5cm of errors, minimum height=1.9777087639995352cm, minimum width=3.2cm] (server) {sandbox server\\process};
+    \node [above left=2cm of caller] (phantom) {};
+    % \node [draw, fit=(caller_thread) (phantom), text depth=3cm, text height=0.7cm] (caller_process) {caller process}; TODO: sandbox server waits for the caller thread / process to die or the socket to be closed?
+    \draw [<->] (caller) -- node[above] {UNIX socket} (server);
+    \draw[->] (caller) |- node[below] {\texttt{server\_error\_fd}} (errors);
+    \draw[->] (server) |- node[below] {\texttt{stderr}} (errors);
+\end{tikzpicture}
+\caption{Caller requests and receives results of executing untrusted programs through UNIX socket. Sandbox server process dies on error leaving the error message for the caller in an anonymous file.}
+\label{fig:caller_to_sandbox_server_communication}
+\end{figure}
+
+Sandbox needs to execute an untrusted executable. To do this it needs to \texttt{fork()} a child process and call \texttt{execve()} in the child process. Our use case involves executing short-running programs frequently. \texttt{fork()} syscall may take a long time \cite{redis-latency-generated-by-fork} - the bigger RSS (resident set size - RAM pages that are actually in use) the longer time \texttt{fork()} needs. To reduce \texttt{fork()} latency, the caller spawns sandbox server process that executes a separate executable -- containing only the sandbox, therefore reducing the RSS to the minimum and speeding up \texttt{fork()}. Additional benefits of this approach are setting up all common work before running executing the untrusted executable once i.e. when the sandbox server starts e.g. closing stray file descriptors not marked with \texttt{O\_CLOEXEC} flag and setting up cgroups. The only overhead is passing data and file descriptors through the UNIX socket -- from caller to the sandbox server process and back.
+
+\printbibliography
 
 \end{document}
-
-
-%%% Local Variables:
-%%% mode: latex
-%%% TeX-master: t
-%%% coding: latin-2
-%%% End:
-
