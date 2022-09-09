@@ -52,7 +52,7 @@
     showtabs=false,
     tabsize=2
 }
-\lstset{style=mystyle, frame=single, numbers=none}
+\lstset{basicstyle = \ttfamily, style=mystyle, frame=single, numbers=none, columns=fullflexible, upquote=true}
 % End code listings
 
 % Hrefs
@@ -177,6 +177,105 @@ TODO
 TODO
 
 \section{Mount namespaces}
+
+Mount namespaces allow for isolation of mounts i.e. process in one namespace can modify its mount list without affecting others' mount lists, or affecting or being affected by others in a controlled manner thanks to the Shared Subtrees feature of the Linux kernel \cite{shared_subtree}.
+
+\subsection{Terminology}
+
+The most typical use case of \texttt{mount} is mounting a filesystem at some location in a filesystem e.g. mounting home directory: \texttt{mount /dev/sda2 /home/user} or mounting the temporary filesystem at \texttt{/tmp}: \texttt{mount -t tmpfs tmpfs /tmp}. Filesystem can be mounted at multiple locations e.g. \texttt{mount /dev/sda2 /a \&\& mount /dev/sda2 /b}. Such location is called a \textbf{mount point}. As it will be explained later, a single \textbf{mount} has a single mount points. But a single \texttt{mount} operation may result in more than one mounts.
+
+List of all mounts of a mount namespace of a process with PID \texttt{[pid]} can be examined via file \texttt{/proc/[pid]/mountinfo}.
+
+\paragraph{Mount} is a result of a \texttt{mount} operation and is a filesystem that is accessible at a specified location called a \texttt{mount point}.
+
+\paragraph{Mount point} is a location where mount in attached.
+
+\paragraph{Propagation type} affects how mounts that happen directly under that mount are propagated to other members of the \texttt{peer group} and its slave peer groups. It can be one of:
+\begin{itemize}
+    \item \texttt{shared} Its peer group can have any size and mount events propagate to other members and from other members of the peer group.
+    \item \texttt{slave} Its peer group has only one member --- itself and has a master peer group. Mount events propagate from the master peer group, but not to the master peer group.
+    \item \texttt{slave \& shared} Its peer group can have any size and has a master peer group. Mount events propagate between members of the slave \& shared peer group but not to the master peer group. Mount events from the master peer group propagate to all members of the slave \& shared peer group.
+    \item \texttt{private} Its peer group has only one member --- itself. No mount events propagate from this peer group to another and vice versa.
+    \item \texttt{unbindable} Same as \texttt{private}, but bind mounts with source inside this mount are forbidden.
+\end{itemize}
+
+\paragraph{Peer group} is a group of mounts that propagate mounts between one another.
+
+These notions are best illustrated in an example. First we mount \texttt{tmpfs} at \texttt{/mnt} and make its propagation type \texttt{shared}, later we examine the mount list after this operation.
+\begin{lstlisting}
+# mount -t tmpfs tmpfs /mnt --make-shared
+# cat /proc/self/mountinfo | grep '/mnt' | sed 's/ - .*//'
+619 27 0:69 / /mnt rw,relatime shared:274
+\end{lstlisting}
+Now we create a \texttt{/tmp/mnt} and bind mount there the \texttt{/mnt}.
+\begin{lstlisting}
+# mkdir /tmp/mnt
+# mount --bind /mnt /tmp/mnt
+# cat /proc/self/mountinfo | grep '/mnt' | sed 's/ - .*//'
+619 27 0:69 / /mnt rw,relatime shared:274
+773 39 0:69 / /tmp/mnt rw,relatime shared:274
+\end{lstlisting}
+We see that both of these mounts have \texttt{shared:274} --- it means that the mount has propagation type \texttt{shared} and \texttt{274} is the id of the peer group. So both mounts are in the same peer group.
+Apart from the fact that these mount points have the same filesystem underneath (because of the bind mount):
+\begin{lstlisting}
+# ls /mnt
+# ls /tmp/mnt
+# touch /mnt/a
+# touch /tmp/mnt/b
+# ls /mnt
+a  b
+# ls /tmp/mnt
+a  b
+\end{lstlisting}
+They also propagate mount events between them (because of the propagation type \texttt{shared}):
+\begin{lstlisting}
+# mkdir /mnt/c
+# mount -t tmpfs tmpfs /mnt/c
+# cat /proc/self/mountinfo | grep '/mnt' | sed 's/ - .*//'
+619 27 0:69 / /mnt rw,relatime shared:274
+773 39 0:69 / /tmp/mnt rw,relatime shared:274
+794 619 0:71 / /mnt/c rw,relatime shared:415
+795 773 0:71 / /tmp/mnt/c rw,relatime shared:415
+\end{lstlisting}
+We can see that mount at \texttt{/mnt/c} propagated to \texttt{/tmp/mnt} as \texttt{/tmp/mnt/c}.
+
+E.g. with a private propagation type mounts are not propagated.
+\begin{lstlisting}
+# mount -t tmpfs tmpfs /mnt --make-private
+# cat /proc/self/mountinfo | grep '/mnt' | sed 's/ - .*//'
+619 27 0:69 / /mnt rw,relatime
+\end{lstlisting}
+\begin{lstlisting}
+# mkdir /tmp/mnt
+# mount --bind /mnt /tmp/mnt
+# cat /proc/self/mountinfo | grep '/mnt' | sed 's/ - .*//'
+619 27 0:69 / /mnt rw,relatime
+773 39 0:69 / /tmp/mnt rw,relatime shared:274
+\end{lstlisting}
+\begin{lstlisting}
+# ls /mnt
+# ls /tmp/mnt
+# touch /mnt/a
+# touch /tmp/mnt/b
+# ls /mnt
+a  b
+# ls /tmp/mnt
+a  b
+\end{lstlisting}
+\begin{lstlisting}
+# mkdir /mnt/c
+# mount -t tmpfs tmpfs /mnt/c
+# cat /proc/self/mountinfo | grep '/mnt' | sed 's/ - .*//'
+619 27 0:69 / /mnt rw,relatime
+773 39 0:69 / /tmp/mnt rw,relatime shared:274
+794 619 0:71 / /mnt/c rw,relatime
+\end{lstlisting}
+
+\texttt{slave} propagation type allows for propagation only in one direction, from the master peer group to the slave peer group.
+
+More details about all propagation types and the semantics of all \texttt{mount} operations are be described in the following subsections.
+
+\subsection{Semantics}
 TODO
 
 \section{cgroups}
