@@ -113,7 +113,7 @@
 }
 
 %Klasyfikacja tematyczna wedlug AMS (matematyka) lub ACM (informatyka)
-\klasyfikacja{10011007.10010940.10010941.10010949 --- Software and its engineering -- Software organization and properties -- Contextual software domains -- Operating systems}
+\klasyfikacja{10011007.10010940.10010941.10010949 --- Software and its engineering -- Software organization and properties -- Contextual software domains -- Operating systems --- TODO: is ok?}
 
 % Słowa kluczowe:
 \keywords{sandboxing, security, container, Linux, capabilities, cgroups, user namespace, PID namespace, mount namespace, secure execution, arbitrary code execution, rlimit, seccomp, ptrace}
@@ -130,7 +130,8 @@
 
 %tu idzie streszczenie na strone poczatkowa
 \begin{abstract}
-TODO
+We introduce a new sandbox for unprivileged Linux users that requires no kernel modifications. It takes advantage of several Linux mechanisms used elsewhere cgroups, namespaces, ptrace and seccomp among others. The sandbox was optimized to run dozens of untrusted programs in a sequence with minimal overhead while preserving the safety. It is capable of running both multi-threaded and multi-process programs. It is able to record the peek memory usage and CPU execution time of multithreaded program, alas these statistics are unavailable for multi-process programs.
+We describe the encountered limitation and challenges around enforcing safety and collecting statistics. Further, we examine its ability to run complex multi-process programs like C++ compiler and the overhead when running a series of short-running programs.
 \end{abstract}
 
 \tableofcontents
