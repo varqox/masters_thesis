@@ -167,7 +167,9 @@ All of that is to be done as an unprivileged user.
 
 Such combination (especially minimal overhead and recording the peek memory usage) is very uncommon e.g. Firejail (TODO: reference) does not provide memory statistics. LXC (TODO: reference) and Docker require privileges to create a container. Thereby, the listed constraints require a new solution.
 
-\chapter{Useful Linux kernel mechanisms}
+In the chapter \ref{chapter:linux_mechanism}, we describe the Linux kernel mechanisms used in the project and . Design of the sandbox is described in chapter \ref{chapter:design} along with security considerations and decisions made in the process along with the encountered limitations such as inability to record the peak memory usage and total CPU time when more that one process is running. The chapter \ref{chapter:evaluation} contains performance measurements of the sandbox and evaluation of ability to run complex programs like C++ compiler or \LaTeX engine.
+
+\chapter{Useful Linux kernel mechanisms} \label{chapter:linux_mechanism}
 
 TODO
 
@@ -291,10 +293,16 @@ TODO
 \section{ptrace}
 TODO
 
-\section{seccomp}
+\section{seccomp} \label{section:seccomp}
 TODO
 
-\chapter{Sandbox design}
+\chapter{Sandbox design} \label{chapter:design}
+
+\section{Assumptions}
+
+The primary assumption is that the validation and enforcement during the interaction of an untrusted program and the Linux kernel is enough to prevent the program from doing anything unwanted. Thus satinization of all syscalls either directly (using \texttt{ptrace} and \texttt{seccomp}) or indirectly (using capabilities, cgroups, namespaces e.g. mount namespaces, and limits e.g. \texttt{prlimit()}). Thereby executing the program while no syscalls are invoked is considered safe. In general however, this is not true, e.g. \texttt{io\_uring} can be used to ''call syscalls'' without actually executing any syscall \cite{lwn_io_uring}. Another example is writing to memory mapped file just by writing to the memory region where the file is mapped to. Such dangerous situations need to be prevented by properly forbidding or sanitizing syscalls that are necessary for such situations to happen i.e. preventing \texttt{io\_uring} syscalls and forbidding mapping of the unwanted files.
+
+\section{Sandbox server}
 
 Sandbox is spawned as a separate process and this process executes sandboxing requests e.g. execute program A with configuration B. Communication between the caller and the sandbox server process uses UNIX domain socket. Errors regarding handling a specific request are reported through the UNIX socket as a response to the sandbox request. A separate anonymous file (created using \texttt{memfd\_create()}) is used for reporting fatal errors of the sandbox server process - it fills the file with an error description and dies afterwards. Such separation allows for a simpler protocol to be used for communicating through the UNIX socket e.g. reporting errors about writing to the socket are reported using the anonymous file instead of the socket itself. Figure \ref{fig:caller_to_sandbox_server_communication} illustrates the design.
 
@@ -317,6 +325,33 @@ Sandbox is spawned as a separate process and this process executes sandboxing re
 \end{figure}
 
 Sandbox needs to execute an untrusted executable. To do this it needs to \texttt{fork()} a child process and call \texttt{execve()} in the child process. Our use case involves executing short-running programs frequently. \texttt{fork()} syscall may take a long time \cite{redis-latency-generated-by-fork} - the bigger RSS (resident set size - RAM pages that are actually in use) the longer time \texttt{fork()} needs. To reduce \texttt{fork()} latency, the caller spawns sandbox server process that executes a separate executable -- containing only the sandbox, therefore reducing the RSS to the minimum and speeding up \texttt{fork()}. Additional benefits of this approach are setting up all common work before running executing the untrusted executable once i.e. when the sandbox server starts e.g. closing stray file descriptors not marked with \texttt{O\_CLOEXEC} flag and setting up cgroups. The only overhead is passing data and file descriptors through the UNIX socket -- from caller to the sandbox server process and back.
+
+\section{Limiting the number of processes and threads}
+TODO: cgroup
+
+\section{Isolating filesystem}
+TODO
+
+\section{Limiting memory}
+TODO: prlimit + cgroup
+
+\section{Limiting execution time}
+TODO
+
+\section{Collecting statistics}
+
+\subsection{Execution real time}
+TODO
+
+\subsection{Execution CPU time}
+TODO
+
+\subsection{Peek memory usage}
+TODO
+
+% \section{}
+
+\chapter{Evaluation} \label{chapter:evaluation}
 
 \printbibliography
 
