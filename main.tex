@@ -22,7 +22,7 @@
 \usepackage{amsmath}
 % Diagrams
 \usepackage{tikz}
-\usetikzlibrary{calc,positioning,arrows.meta,shapes,fit}
+\usetikzlibrary{calc,positioning,arrows.meta,shapes,fit,backgrounds}
 
 \usepackage{pgfplots}
 \usepgfplotslibrary{groupplots}
@@ -140,34 +140,40 @@ We describe the encountered limitation and challenges around enforcing safety an
 
 \chapter{Introduction}
 
-The objective of this project is to create safe and efficient sandbox to execute short running untrusted programs, as well as complex programs e.g. compiler of a C++ program. All done with robust isolation and minimal overhead (the order of milliseconds).
+TODO
 
-The primary use case is an online judge whose job is to
-\begin{itemize}
-    \item compile user-provided source code
-    \item run it several times (even hundreds) with different inputs
-    \item verify the output correctness usually by running another program
-\end{itemize}
-All of these tasks require at least ensuring that
-\begin{itemize}
-    \item real time is limited
-    \item CPU time is limited
-    \item memory is limited
-    \item disk space is limited
-    \item file access is isolated
-    \item network is isolated or disabled
-\end{itemize}
-Also statistics about the executed program are required
-\begin{itemize}
-    \item real time used
-    \item CPU time used
-    \item peek memory usage
-\end{itemize}
-All of that is to be done as an unprivileged user.
+\section{Assumptions}
 
-Such combination (especially minimal overhead and recording the peek memory usage) is very uncommon e.g. Firejail (TODO: reference) does not provide memory statistics. LXC (TODO: reference) and Docker require privileges to create a container. Thereby, the listed constraints require a new solution.
+The primary assumption is that the validation and enforcement during the interaction of an untrusted program and the Linux kernel is enough to prevent the program from doing anything unwanted. Thus satinization of all syscalls either directly (using \texttt{ptrace} and \texttt{seccomp}) or indirectly (using capabilities, cgroups, namespaces e.g. mount namespaces, and limits e.g. \texttt{prlimit()}). Thereby executing the program while no syscalls are invoked is considered safe. In general however, this is not true, e.g. \texttt{io\_uring} can be used to ''call syscalls'' without actually executing any syscall \cite{lwn_io_uring}. Another example is writing to memory mapped file just by writing to the memory region where the file is mapped to. Such dangerous situations need to be prevented by properly forbidding or sanitizing syscalls that are necessary for such situations to happen i.e. preventing \texttt{io\_uring} syscalls and forbidding mapping of the unwanted files.
 
-In the chapter \ref{chapter:linux_mechanism}, we describe the Linux kernel mechanisms used in the project and . Design of the sandbox is described in chapter \ref{chapter:design} along with security considerations and decisions made in the process along with the encountered limitations such as inability to record the peak memory usage and total CPU time when more that one process is running. The chapter \ref{chapter:evaluation} contains performance measurements of the sandbox and evaluation of ability to run complex programs like C++ compiler or \LaTeX engine.
+% The objective of this project is to create safe and efficient sandbox to execute short running untrusted programs, as well as complex programs e.g. compiler of a C++ program. All done with robust isolation and minimal overhead (the order of milliseconds).
+
+% The primary use case is an online judge whose job is to
+% \begin{itemize}
+%     \item compile user-provided source code
+%     \item run it several times (even hundreds) with different inputs
+%     \item verify the output correctness usually by running another program
+% \end{itemize}
+% All of these tasks require at least ensuring that
+% \begin{itemize}
+%     \item real time is limited
+%     \item CPU time is limited
+%     \item memory is limited
+%     \item disk space is limited
+%     \item file access is isolated
+%     \item network is isolated or disabled
+% \end{itemize}
+% Also statistics about the executed program are required
+% \begin{itemize}
+%     \item real time used
+%     \item CPU time used
+%     \item peek memory usage
+% \end{itemize}
+% All of that is to be done as an unprivileged user.
+
+% Such combination (especially minimal overhead and recording the peek memory usage) is very uncommon e.g. Firejail (TODO: reference) does not provide memory statistics. LXC (TODO: reference) and Docker require privileges to create a container. Thereby, the listed constraints require a new solution.
+
+% In the chapter \ref{chapter:linux_mechanism}, we describe the Linux kernel mechanisms used in the project and . Design of the sandbox is described in chapter \ref{chapter:design} along with security considerations and decisions made in the process along with the encountered limitations such as inability to record the peak memory usage and total CPU time when more that one process is running. The chapter \ref{chapter:evaluation} contains performance measurements of the sandbox and evaluation of ability to run complex programs like C++ compiler or \LaTeX engine.
 
 \chapter{Useful Linux kernel mechanisms} \label{chapter:linux_mechanism}
 
@@ -298,31 +304,92 @@ TODO
 
 \chapter{Sandbox design} \label{chapter:design}
 
-\section{Assumptions}
-
-The primary assumption is that the validation and enforcement during the interaction of an untrusted program and the Linux kernel is enough to prevent the program from doing anything unwanted. Thus satinization of all syscalls either directly (using \texttt{ptrace} and \texttt{seccomp}) or indirectly (using capabilities, cgroups, namespaces e.g. mount namespaces, and limits e.g. \texttt{prlimit()}). Thereby executing the program while no syscalls are invoked is considered safe. In general however, this is not true, e.g. \texttt{io\_uring} can be used to ''call syscalls'' without actually executing any syscall \cite{lwn_io_uring}. Another example is writing to memory mapped file just by writing to the memory region where the file is mapped to. Such dangerous situations need to be prevented by properly forbidding or sanitizing syscalls that are necessary for such situations to happen i.e. preventing \texttt{io\_uring} syscalls and forbidding mapping of the unwanted files.
-
-\section{Sandbox server}
-
-Sandbox is spawned as a separate process and this process executes sandboxing requests e.g. execute program A with configuration B. Communication between the caller and the sandbox server process uses UNIX domain socket. Errors regarding handling a specific request are reported through the UNIX socket as a response to the sandbox request. A separate anonymous file (created using \texttt{memfd\_create()}) is used for reporting fatal errors of the sandbox server process - it fills the file with an error description and dies afterwards. Such separation allows for a simpler protocol to be used for communicating through the UNIX socket e.g. reporting errors about writing to the socket are reported using the anonymous file instead of the socket itself. Figure \ref{fig:caller_to_sandbox_server_communication} illustrates the design.
+\section{Overview}
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
 \centering
 \begin{tikzpicture}[align=center]
-    \node [draw] (errors) {anonymous file\\for errors};
-    % \node [draw, above left=1.5cm of errors, minimum height=1.9777087639995352cm, minimum width=3.2cm] (caller_thread) {caller thread};
-    \node [draw, above left=1.5cm of errors, minimum height=1.9777087639995352cm, minimum width=3.2cm] (caller) {caller};
-    \node [draw, above right=1.5cm of errors, minimum height=1.9777087639995352cm, minimum width=3.2cm] (server) {sandbox server\\process};
-    \node [above left=2cm of caller] (phantom) {};
-    % \node [draw, fit=(caller_thread) (phantom), text depth=3cm, text height=0.7cm] (caller_process) {caller process}; TODO: sandbox server waits for the caller thread / process to die or the socket to be closed?
-    \draw [<->] (caller) -- node[above] {UNIX socket} (server);
+    \node [draw, densely dotted] (errors) {anonymous file\\for errors};
+    \node [draw, above left=1cm and 0.1cm of errors, minimum height=1.9777087639995352cm, minimum width=3.2cm] (caller) {caller};
+    \node [draw, above right=1cm and 0.1cm of errors, minimum height=1.9777087639995352cm, minimum width=3.2cm] (supervisor) {sandbox supervisor\\process};
+
+    \node[draw, above right=1.2cm and -0.9cm of supervisor, densely dotted] (shmem) {shared memory\\for result};
+    \node [draw, below right=1.2cm and -0.9cm of shmem, minimum height=1.9777087639995352cm, minimum width=3.2cm] (init) {init\\process};
+
+    \node [draw, above right=-0.1cm and 0.5cm of init.east] (tracee_mid) {tracee\\process};
+    \node [draw, above=0.5cm of tracee_mid] (tracee_up) {tracee\\process};
+    \node [below=0.5cm of tracee_mid] (tracee_dots) {\ldots};
+    \node [draw, below=0.5cm of tracee_dots] (tracee_bottom) {tracee\\process};
+
+    \draw[<->] (caller) -- node[above] {UNIX socket} (supervisor);
     \draw[->] (caller) |- node[below] {\texttt{server\_error\_fd}} (errors);
-    \draw[->] (server) |- node[below] {\texttt{stderr}} (errors);
+    \draw[->] (supervisor) |- node[below] {\texttt{stderr}} (errors);
+    \draw[<-] (supervisor.north) |- (shmem);
+    \draw[<-] (shmem) -| (init.north);
+    \draw[<-, dashed] (supervisor) -- (init);
+    \draw[<-, dashed] (init) -- (tracee_mid);
+    \draw[<-, dashed] (init.20) -- (tracee_up);
+    \draw[<-, dashed] (init.-20) -- (tracee_bottom);
+
+    \begin{scope}[on background layer]
+        \draw [dashed, rounded corners, darkgray!70, fill=darkgray!10]
+            ($(supervisor.north west)+(-0.3,0.3)$) .. controls +(0:3cm) and +(220:2cm) .. node[above,inner sep=0.2cm, pos=0.01, darkgray] {preliminary isolated\\environment}
+            ($(tracee_up.north west)+(-0.5,0.5)$) --
+            ($(tracee_up.north east)+(0.5,0.5)$) --
+            ($(tracee_bottom.south east)+(0.5,-0.5)$) --
+            ($(tracee_bottom.south west)+(-0.5,-0.5)$) .. controls +(180:3cm) and +(0:3cm) ..
+            ($(supervisor.south west)+(-0.3,-0.3)$) --
+            cycle;
+    \end{scope}
+
+    \begin{scope}[on background layer]
+        \draw [dash dot, rounded corners, blue!70, fill=blue!10]
+            ($(init.north west)+(-0.3,0.3)$) .. controls +(0:3cm) and +(270:1.5cm) ..
+            ($(tracee_up.north west)+(-0.3,0.3)$) --
+            ($(tracee_up.north east)+(0.3,0.3)$) --
+            ($(tracee_bottom.south east)+(0.3,-0.3)$) --
+            ($(tracee_bottom.south west)+(-0.3,-0.3)$) .. controls +(90:1.2cm) and +(0:3cm) .. node[below,inner sep=0.2cm, pos=0.7, blue] {isolated\\environment}
+            ($(init.south west)+(-0.3,-0.3)$) --
+            cycle;
+    \end{scope}
+
+    \begin{scope}[on background layer]
+        \node[draw, dotted, fit=(supervisor) (init) (shmem)] (server) {};
+        \node[above=0.1cm of server] {Sandbox server};
+    \end{scope}
+
+    % Legend
+    \matrix [draw, right] at (current bounding box.north west) {
+        \draw[<-] (0,0) -- (0.5,0); & \node[right] {information flow}; \\
+        \draw[<-, dashed] (0,0) -- (0.5,0); & \node[right] {parentship}; \\
+        \draw node[right, draw] {x}; & \node[right] {process}; \\
+        \draw node[right, draw, densely dotted] {y}; & \node[right] {resource}; \\
+    };
+
 \end{tikzpicture}
-\caption{Caller requests and receives results of executing untrusted programs through UNIX socket. Sandbox server process dies on error leaving the error message for the caller in an anonymous file.}
+\caption{Caller requests and receives results of executing untrusted programs through UNIX socket. Sandbox server dies on error leaving the error message for the caller in an anonymous file. Sandbox server consist of the supervisor process and its child --- the init process that is spawned for each request. Init process performs role of the init process in the PID namespace of tracee processes. Init process passes errors and results to the supervisor process using shared memory. To reduce overhead of setting up the isolated environment for each request, common work is done only once to create the preliminary isolated in the supervisor process.}
 \label{fig:caller_to_sandbox_server_communication}
 \end{figure}
+
+Sandbox works as a set of separate processes. Caller spawns the sandbox server, which consists of the supervisor process that for each request spawns init process that manages tracee processes of the request. A request consist of an isolated environment configuration along with the program to execute and its arguments. A separate init process is required by PID namespaces. To minimize the attack surface in case of a compromise, it is better to separate the init process from the supervisor process. Figure \ref{fig:caller_to_sandbox_server_communication} illustrates this separation.
+
+For each request, an isolated environment needs to be prepared for the executed program. Preliminary isolated environment that is managed by sandbox supervisor process is there to reduce overhead of preparing the isolated environment during handling of the subsequent requests. Sandbox is designed for handling many subsequent requests, and setting up the isolated environment again and again requires repeating the same steps. Steps that can be done once for all requests without a security or an isolation trade-off are performed once and make up the preliminary isolated environment. One of such steps is creating a cgroup hierarchy for the init and tracee processes.
+
+Communication is performed differently in different places. The caller sends requests and receives results via UNIX socket connected with the sandbox supervisor process. Fatal errors in the sandbox server are reported to the caller using an anonymous file for errors. This could be done over the UNIX socket but, to simplify the communication protocol it is separated. This way we do not have to deal with problematic cases like reporting error about problems with sending data over the socket --- the error would have to be reported via the problematic socket. Init process reports request results to supervisor using shared memory mapping.
+
+The init process is the parent of the main tracee process and orphaned tracee processes as a property of PID namespaces \cite{man_pid_namespaces}. Sandbox supervisor process is the parent of the init process. Although the caller is the parent process of the sandbox supervisor process, sandbox server is implemented without this assumption. Instead of dying upon the caller process death, the sandbox supervisor watches the UNIX socket for a other-end-closure event of the connection. When this happens it exits immediately. Init process is configured to be killed as soon as the supervisor becomes dead, and trace processes will be killed by the Linux kernel when the init process dies or is killed. Therefore the sandbox server is not bound to the caller process but the UNIX socket instead.
+
+\section{TODO}
+
+\section{Caller}
+
+\section{Sandbox server}
+
+THIS SECTION NEEDS AND WILL BE REWORED
+
+Sandbox is spawned as a separate process and this process executes sandboxing requests e.g. execute program A with configuration B. Communication between the caller and the sandbox server process uses UNIX domain socket. Errors regarding handling a specific request are reported through the UNIX socket as a response to the sandbox request. A separate anonymous file (created using \texttt{memfd\_create()}) is used for reporting fatal errors of the sandbox server process - it fills the file with an error description and dies afterwards. Such separation allows for a simpler protocol to be used for communicating through the UNIX socket e.g. reporting errors about writing to the socket are reported using the anonymous file instead of the socket itself. Figure \ref{fig:caller_to_sandbox_server_communication} illustrates the design.
+
 
 Sandbox needs to execute an untrusted executable. To do this it needs to \texttt{fork()} a child process and call \texttt{execve()} in the child process. Our use case involves executing short-running programs frequently. \texttt{fork()} syscall may take a long time \cite{redis-latency-generated-by-fork} - the bigger RSS (resident set size - RAM pages that are actually in use) the longer time \texttt{fork()} needs. To reduce \texttt{fork()} latency, the caller spawns sandbox server process that executes a separate executable -- containing only the sandbox, therefore reducing the RSS to the minimum and speeding up \texttt{fork()}. Additional benefits of this approach are setting up all common work before running executing the untrusted executable once i.e. when the sandbox server starts e.g. closing stray file descriptors not marked with \texttt{O\_CLOEXEC} flag and setting up cgroups. The only overhead is passing data and file descriptors through the UNIX socket -- from caller to the sandbox server process and back.
 
@@ -350,6 +417,13 @@ TODO
 TODO
 
 % \section{}
+
+TODO NOTES:
+
+% unshare_newpid_two_children.cc
+It seems that the PID namespace init process cannot exit unless all the processes are dead and *waited* i.e. exit\_group() blocks. Here it only helps if we kill the parent. The parent of pid2 is not pid which it may seem a bit strange from inside the new namespace as there are two roots in the process hierarchy. Also init inherits orphaned children of processes inside the namespace e.g. of process pid2. So that orphaned children don't have to be adopted by an ancestor process.
+
+RLIMIT\_CPU: limit is inherited and preserved across execve but is not shared with child processes i.e. process can spawn a child that uses up limit of X seconds, and later spawn another child that now has X seconds of cpu time, not 0 seconds.
 
 \chapter{Evaluation} \label{chapter:evaluation}
 
