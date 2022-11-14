@@ -2,10 +2,12 @@
 all: main.pdf
 
 main.pdf: main.tex references.bib pracamgr.cls Makefile
-	pdflatex -halt-on-error main.tex < /dev/null
-	/usr/bin/vendor_perl/biber main
-	pdflatex -halt-on-error main.tex < /dev/null
-	rm -f main.aux main.bbl main.bcf main.blg main.log main.out main.run.xml main.toc
+	make -p utils/latex
+	rm -rf utils/latex/main.*
+	pdflatex -halt-on-error -output-dir=utils/latex main.tex < /dev/null
+	/usr/bin/vendor_perl/biber utils/latex/main.bcf
+	pdflatex -halt-on-error -output-dir=utils/latex main.tex < /dev/null
+	cp utils/latex/$@ $@
 
 .PHONY:
 watch:
