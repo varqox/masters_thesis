@@ -380,6 +380,22 @@ Communication is performed differently in different places. The caller sends req
 
 The init process is the parent of the main tracee process and orphaned tracee processes as a property of PID namespaces \cite{man_pid_namespaces}. Sandbox supervisor process is the parent of the init process. Although the caller is the parent process of the sandbox supervisor process, sandbox server is implemented without this assumption. Instead of dying upon the caller process death, the sandbox supervisor watches the UNIX socket for a other-end-closure event of the connection. When this happens it exits immediately. Init process is configured to be killed as soon as the supervisor becomes dead, and trace processes will be killed by the Linux kernel when the init process dies or is killed. Therefore the sandbox server is not bound to the caller process but the UNIX socket instead.
 
+\section{Sandbox immediate termination on connection close or supervisor death}
+
+It is desirable to have trace processes and the sandbox terminated upon closure of the caller's end of the connection (e.g. because of death of the caller process). It is also desirable in case one of the sandbox processes dies. This is because running the tracee processes longer makes no sense as nobody will collect the result. Even more it is an unnecessary waste of the resources. Therefore sandbox terminates as soon as one of these events happens.
+
+While the init process is handling the request, sandbox supervisor process observes with \texttt{poll()} \cite{man_poll} the socket connection to the client for closure event \texttt{POLLHUP} and the init process's PID file descriptor for \texttt{POLLIN} (which means the process become dead). This way, the supervisor process is notified immediately about the closure of the other end of the connection. Upon this event the supervisor process terminates immediately.
+
+While the init process is not spawned, the supervisor process waits for the incoming request by blocking on \texttt{recvmsg()} \cite{man_recvmsg} on the connection, which will return 0 when the other end becomes closed. In such case, the supervisor exits immediately.
+
+To ensure the init process does not outlive the supervisor process, it asks the kernel to kill it with \texttt{SIGKILL} when the supervisor process dies. This is done by calling \\\texttt{prctl(PR\_SET\_PDEATHSIG, SIGKILL)} \cite{man_prctl} and checking if the parent (i.e. sandbox supervisor process) is already dead after the \texttt{prctl()} call. \texttt{prctl()} is not enough by itself because if the parent process dies before the call, the process is reparented and the signal is not sent.
+
+Checking if the parent is dead in the init process cannot be done by simply checking if \texttt{getppid()} \cite{man_getppid} returns value equal to the PID of the sandbox supervisor. This is because the init process is a member of a new PID namespace and \texttt{getppid()} returns 0, as sandbox supervisor or the parent process after reparenting is outside of this PID namespace. To deal with it, supervisor process opens a PID file descriptor on itself (via \texttt{pidfd\_open()} \cite{man_pidfd_open}) and passes it to the init process that checks with \texttt{poll()} \cite{man_poll} if it is readable. PID file descriptor becomes readable only after the process it refers to becomes dead \cite{man_pidfd_open}.
+
+Tracee processes will be terminated by the kernel with \texttt{SIGKILL} immediately when the init process becomes dead, as it is the init process in the tracee processes' PID namespace \cite{man_pid_namespaces}.
+
+All of the above ensures that if init process terminates, tracee process are killed and if supervisor terminates, then init process and tracee processes are terminated as well.
+
 \section{TODO}
 
 \section{Caller}
