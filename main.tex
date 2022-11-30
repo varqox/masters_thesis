@@ -147,7 +147,7 @@ We describe the encountered limitation and challenges around enforcing safety an
 %\listoffigures
 %\listoftables
 
-\chapter{Introduction}
+\chapter{Introduction}\label{chapter:introduction}
 
 \section{Background}
 
@@ -165,10 +165,46 @@ Rootless are containers \cite{rootless_containers_rs} that can be created and by
 
 \section{Goal of this thesis}
 
-% The host is running with cgroup v2
-% The host is running with systemd
+Is to create a sandbox optimized for an online judge i.e. optimized for running the same program multiple times with different input. Also the sandbox has to be capable enough to allow running a compiler. However the below assumptions must be met:
+\begin{itemize}
+    \item The system is running with cgroup v2
+    \item The system is running with systemd
+    \item Unprivileged user namespaces are enabled
+\end{itemize}
+The sandbox has to provide execution statistics:
+\begin{itemize}
+    \item Memory used
+    \item Execution CPU time
+    \item Execution real time
+\end{itemize}
+with the following limits and isolation:
+\begin{itemize}
+    \item Real time limit
+    \item CPU time limit for single process programs
+    \item Memory limit
+    \item Stack memory limit
+    \item Process limit
+    \item Filesystem isolation with allowing bindings
+    \item Visible processes isolation
+    \item Visible users isolation
+    \item Visible IPC isolation
+    \item Network isolation
+    \item Hostname isolation
+\end{itemize}
+
+The another goal is to compare the sandbox and its efficiency to rootless containers that are a related solution.
+
+While the sandbox needs to isolate network, the goal is not to provide outer network (e.g. internet) access to the sandboxed programs.
 
 \section{Structure of the thesis}
+
+Chapter \ref{chapter:kernel_features} contains brief summary of the Linux kernel features employed by the sandbox. Chapter \ref{chapter:sandbox_design} describes the sandbox and its design. In chapter \ref{chapter:comparison_with_rootless_containers} comparison with the rootless containers is described.
+
+\chapter{Kernel features}\label{chapter:kernel_features}
+
+\chapter{Sandbox design}\label{chapter:sandbox_design}
+
+\chapter{Comparison with rootless containers}\label{chapter:comparison_with_rootless_containers}
 
 \iffalse
 TODO
