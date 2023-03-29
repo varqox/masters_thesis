@@ -165,36 +165,56 @@ Rootless are containers \cite{rootless_containers_rs} that can be created and by
 
 \section{Goal of this thesis}
 
-Is to create a sandbox optimized for an online judge i.e. optimized for running the same program multiple times with different input. Also the sandbox has to be capable enough to allow running a compiler. However the below assumptions must be met:
-\begin{itemize}
-    \item The system is running with cgroup v2
-    \item The system is running with systemd
-    \item Unprivileged user namespaces are enabled
-\end{itemize}
-The sandbox has to provide execution statistics:
-\begin{itemize}
-    \item Memory used
-    \item Execution CPU time
-    \item Execution real time
-\end{itemize}
-with the following limits and isolation:
-\begin{itemize}
-    \item Real time limit
-    \item CPU time limit for single process programs
-    \item Memory limit
-    \item Stack memory limit
-    \item Process limit
-    \item Filesystem isolation with allowing bindings
-    \item Visible processes isolation
-    \item Visible users isolation
-    \item Visible IPC isolation
-    \item Network isolation
-    \item Hostname isolation
-\end{itemize}
+The Sim project \cite{sim_project} is an online platform for preparing people for and carrying out algorithmic contests. It has an online judge with specially developed sandbox for this use case. Over the years the sandbox became a limitation. It only allows running a single-threaded statically linked executable of programs written in C, C++ or Pascal.
 
-The another goal is to compare the sandbox and its efficiency to rootless containers that are a related solution.
+Nowadays, the lack of support for popular languages that require dynamic linking e.g. Python, or languages with a complex runtime e.g. Java (muli-thread runtime) is an issue that deters users who want to learn and practice these languages. Supporting such languages requires a different approach. The current sandbox uses seccomp \texttt{seccomp} filters \cite{man_seccomp} to filter syscalls and \texttt{ptrace} \cite{man_ptrace} to inspect the syscall arguments e.g. \texttt{open} \cite{man_open}. Such checking of indirect syscalls arguments is prone to Time Of Check To Time Of Use race condition \cite{time_of_check_time_of_use} if the memory is shared by at least two threads or processes, making the current approach ineffective for multi-threaded runtimes.
 
-While the sandbox needs to isolate network, the goal is not to provide outer network (e.g. internet) access to the sandboxed programs.
+Compiled languages require compiling the source code in order to execute it. Currently, the Sim project sanitizes compilation only by allowing the compiler to access part of the file system using PRoot \cite{proot}. To prevent users from exploiting the compiler through vulnerabilities to perform unsafe syscalls a stronger method is required.
+
+One might use secure compilers to increase safety of the compilation \cite{LEE2017350}. However, many languages are lacking secure compilers and even secure compilers are still exposed to bugs and vulnerabilities in the compiler itself. External sandbox alleviates these shortcomings by treating the compiler as a program fully controlled by the user. Sandboxing the compiler requires sandboxing a group of processes e.g. for C++. The similarity of a group of processes to a group of threads allows using the same sandbox for running multi-threaded runtime and for securing compilation.
+
+The goal of this thesis is to create an efficient sandbox capable of safely isolating and running compilers, dynamically linked executables and multi-threaded runtimes.
+
+% ----------------------------------
+
+% the Sim project needs to compile them.
+% The Sim project also needs to compile the user's programs in a secure manner. Sandboxing the compilation is preferable because it prevents us
+
+% Nowadays, there other languages  is a growing need to allow running python that require dynamic linking and other languages with complex runtimes e.g. Java which has a mulithreaded runtime. This requires a different approach to providing security inside a sandbox. The current sandbox uses seccomp filters and ptrace to restrict the allowed set of syscalls or specific arguments for some syscalls e.g. \texttt{open}.
+
+% Another problem in the Sim project is the compilation of the user's programs. This process also needs to be secured through a sandbox. Compilers are buggy and exploitable, thus the safety needs to be ensured externally, e.g. through a sandbox. Fortunately, the required sandbox for running the user's programs is so versatile it is a suitable fit for securing the compilation process.
+
+
+% Is to create a sandbox optimized for an online judge i.e. optimized for running the same program multiple times with different input. Also the sandbox has to be capable enough to allow running a compiler. However the below assumptions must be met:
+% \begin{itemize}
+%     \item The system is running with cgroup v2
+%     \item The system is running with systemd
+%     \item Unprivileged user namespaces are enabled
+% \end{itemize}
+% The sandbox has to provide execution statistics:
+% \begin{itemize}
+%     \item Memory used
+%     \item Execution CPU time
+%     \item Execution real time
+% \end{itemize}
+% with the following limits and isolation:
+% \begin{itemize}
+%     \item Real time limit
+%     \item CPU time limit for single process programs
+%     \item Memory limit
+%     \item Stack memory limit
+%     \item Process limit
+%     \item Filesystem isolation with allowing bindings
+%     \item Visible processes isolation
+%     \item Visible users isolation
+%     \item Visible IPC isolation
+%     \item Network isolation
+%     \item Hostname isolation
+% \end{itemize}
+
+% The another goal is to compare the sandbox and its efficiency to rootless containers that are a related solution.
+
+% While the sandbox needs to isolate network, the goal is not to provide outer network (e.g. internet) access to the sandboxed programs.
 
 \section{Structure of the thesis}
 
