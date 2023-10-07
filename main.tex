@@ -151,39 +151,75 @@ We describe the encountered limitation and challenges around enforcing safety an
 
 \section{Background}
 
-Secure execution environments are commonplace these days, from containers and virtual machines on servers to sandboxes on laptop and smartphones --- most of which run on Linux. They are used to securely execute untrusted code, as well as trusted programs to prevent damage escalation in the event of unknown bugs. Their key features are isolation, limiting resources, and accounting for resource consumption.
+Secure execution environments are commonplace these days, from containers and virtual machines on servers to sandboxes on laptop and smartphones --- most of which run on Linux. They are used to securely execute untrusted code, as well as trusted programs to prevent damage escalation in the event of unknown vulnerabilities. Their key features are isolation, limiting resource usage, and accounting for resource consumption.
 
 The features of Linux allow the creation of simple yet effective and efficient secure environments. They work at application runtime, so in most cases existing software does not need to be adapted to use them. This makes them easily applicable, and explains why they adoption is growing.
 
-\section{Related work}
+In this thesis, the most important application of sandboxing are online judge systems. Online judge systems have beneficial role in programming education and competitive programming. They allow testing user-provided solution to a specific problem. The solution is run on a predefined test cases in order to check if it is valid. In such platforms isolating the compilation and running of the solution is essential to provide security and robustness of the platform itself.
 
-Approaches to form a secure execution environments differ. One of them is virtualization or emulation e.g. QEMU \cite{qemu_website} and KVM \cite{kvm_website}, VirtualBox \cite{virtualbox_website}, VMWare Workstation \cite{vmware_workstation_website}. Although powerful and effective, they come with an enormous overhead i.e. booting up an entire operating system. Moreover, emulation noticeably slows down the runtime of an emulated application.
+Historically, isolation techniques evolved together with the online judge platforms. The most primitive (yet insecure) was usage of \texttt{chroot(2)} \cite{prevelakis2001sandboxing} to restrict access to part of the filesystem. To increase isolation virtual machines were used \cite{5635141}. Later, containerization became a new way to provide isolation \cite{marevs2012new, SPACEK20151665}.
 
-Containers provide much lower overhead: setup of an order of milliseconds and negligible runtime overhead. Docker \cite{Merkel:2014:DLL:2600239.2600241}, LXC \cite{conf/cisis/BeserraMEBSF15} require root privileges to create a container. systemd-nspawn \cite{systemd_nspawn} requires root privileges to run.
+Online education platforms greatly facilitate teaching and learning programming. They provide quick feedback on the correctness of the code the user submits. They are used in schools and universities and provide great learning opportunities for all.
 
-Rootless are containers \cite{rootless_containers_rs} that can be created and run by an unprivileged user. I discovered them lately in the process of doing this thesis. They provide almost all of the functionality of the normal containers but without the need to engage a privileged user. However, they often use setuid binaries and that is undesirable \cite{podman_rootless_containers_presentation}. Also they are not optimized to run sequences of short-running programs.
+\section{Goal of the thesis}
 
-\section{Goal of this thesis}
+The goal of the thesis is to design, implement and integrate a new sandbox for the Sim project \cite{sim_project}. The Sim project \cite{sim_project} is an online platform for preparing people for and carrying out algorithmic contests. It has an online judge with a sandbox specially developed for this use case. Over the years the sandbox became a limitation. It only allows running a single-threaded statically linked executable of programs written in C, C++ or Pascal. The new sandbox will allow supporting more programming languages and improve security of the solution compilation stage.
 
-The Sim project \cite{sim_project} is an online platform for preparing people for and carrying out algorithmic contests. It has an online judge with a sandbox specially developed for this use case. Over the years the sandbox became a limitation. It only allows running a single-threaded statically linked executable of programs written in C, C++ or Pascal.
+\subsection{Requirements}
 
-Nowadays, the lack of support for popular languages that require dynamic linking e.g. Python, or languages with a complex runtime e.g. Java (muli-thread runtime) is an issue that deters users who want to learn and practice these languages. Supporting such languages requires a different approach. The current sandbox uses \texttt{seccomp} filters \cite{man_seccomp} to filter syscalls and \texttt{ptrace} \cite{man_ptrace} to inspect the syscall arguments e.g. \texttt{open} \cite{man_open}. Such checking of indirect syscalls arguments is prone to Time Of Check To Time Of Use race condition \cite{time_of_check_time_of_use} if the memory is shared by at least two threads or processes, making the current approach ineffective for multi-threaded runtimes.
+The new sandbox needs to be optimized for running short-running programs as well as have minimal runtime overhead. Most of the test cases the solution is run on are small and solution completes them in less than 10ms. The goal is to allow hundreds of such sort-running runs per second, hence optimizing for short-running programs is important. However, minimizing overhead of the sandbox during the run is also important i.e. if the program runs X ms normally, the objective is that the program inside the new sandbox will also run approximately X ms.
 
-Compiled languages require compiling the source code in order to execute it. Currently, the Sim project sanitizes compilation only by allowing the compiler to access part of the file system using PRoot \cite{proot}. To prevent users from exploiting the compiler through vulnerabilities to perform unsafe syscalls a stronger method is required.
+The new sandbox needs to be versatile. It will be used to secure the compilation of the solutions as well as running of the solutions. Compilation is a complicated process that involves parsing, translating, optimizing and linking the final program. It often requires running several executables e.g. compiler and linker, so allowing a single process inside sandbox is not enough. Sandboxing solution is simpler, because it is a single process. But since it is often short-running, the overhead needs to be minimal.
 
-One might use secure compilers to increase safety of the compilation \cite{LEE2017350}. However, many languages are lacking secure compilers and even secure compilers are still exposed to bugs and vulnerabilities in the compiler itself. External sandbox alleviates these shortcomings by treating the compiler as a program fully controlled by the user. Sandboxing the compiler requires sandboxing a group of processes e.g. for C++. The similarity of a group of processes to a group of threads allows using the same sandbox for running multi-threaded runtime and for securing compilation.
+The sandbox needs to allow limiting resources. Real time, CPU time, memory -- these need to be limited not only for the robustness of the platform, but specific problems require different limits. The goal of some problems is to solve it with very restricted memory e.g. find a missing integer in a random permutation of integers $1, \ldots, n$ without one element, but in constant memory.
 
-The goal of this thesis is to create an efficient sandbox capable of safely isolating and running compilers, dynamically linked executables and multi-threaded runtimes.
+The sandbox needs to account resource usage. For every test, the user is presented with consumed memory and CPU time by their solution. The sandbox needs to provide this information.
 
-% ----------------------------------
+The last requirement is the sandbox will not require any privileges. There is a tool called Sip \cite{sip} for preparing the problem packages for the Sim platform. One of the purposes of the tool is to run the solutions inside the same secure environment as on the Sim platform. The user should not need any privileges to run this tool, so the sandbox should not require them either.
 
-% the Sim project needs to compile them.
-% The Sim project also needs to compile the user's programs in a secure manner. Sandboxing the compilation is preferable because it prevents us
+\subsection{Existing solutions}
 
-% Nowadays, there other languages  is a growing need to allow running python that require dynamic linking and other languages with complex runtimes e.g. Java which has a mulithreaded runtime. This requires a different approach to providing security inside a sandbox. The current sandbox uses seccomp filters and ptrace to restrict the allowed set of syscalls or specific arguments for some syscalls e.g. \texttt{open}.
+Approaches to form a secure execution environments differ. One of them is virtualization or emulation e.g. QEMU \cite{qemu_website} and KVM \cite{kvm_website}, VirtualBox \cite{virtualbox_website}, VMWare Workstation \cite{vmware_workstation_website}. Although powerful and effective, they come with an enormous overhead i.e. booting up an entire operating system. Moreover, emulation noticeably slows down the runtime of an emulated application, rendering such solutions inapplicable.
 
-% Another problem in the Sim project is the compilation of the user's programs. This process also needs to be secured through a sandbox. Compilers are buggy and exploitable, thus the safety needs to be ensured externally, e.g. through a sandbox. Fortunately, the required sandbox for running the user's programs is so versatile it is a suitable fit for securing the compilation process.
+Containers provide much lower overhead: setup of an order of milliseconds and negligible runtime overhead. But, Docker \cite{Merkel:2014:DLL:2600239.2600241}, LXC \cite{conf/cisis/BeserraMEBSF15} require root privileges to create a container. systemd-nspawn \cite{systemd_nspawn} requires root privileges to run.
 
+Rootless are containers \cite{rootless_containers_rs} that can be created and run by an unprivileged user are the almost perfect solution to the problem. They provide almost all of the functionality of the normal containers but without the need to engage a privileged user. However, they often use setuid binaries and that is undesirable \cite{podman_rootless_containers_presentation}. Also they are not optimized to run sequences of short-running programs. In this thesis we will create a sandbox that uses the same techniques as rootless containers but will be optimized for running sequences of short-running programs.
+
+\section{Scope}
+
+The sandbox is implemented in C++ and runs only on Linux. The implementation was tested on x86\_64 but should also work on x86 or arm64, due to no architecture specific parts. Only seccomp filters may need to be adapted for other architectures, but the sandbox itself uses user-provided seccomp filters so it should work out of the box.
+
+The sandbox uses linux namespaces to isolate the sandboxed program and cgroups to limit resources and provide resource usage accounting.
+
+A sandbox client in Rust language would be beneficial for the broader adoption of the sandbox, but is intentionally out of scope of this thesis.
+
+\section{Significance}
+
+A highly efficient sandbox could improve user experience by reducing time the user waits for the program to be judged by the online judge platform and could enable supporting more programming languages.
+
+The versatile sandbox can also be used to e.g. sanitize compiling a PDF form \LaTeX~sources. It could also be used for safely executing untrusted server-side scripts in web applications.
+
+\section{Structure of the Thesis}
+
+Chapter \ref{chapter:literature_overview} contains overview of sandboxing techniques and existing implementations and comparative analysis of them. Chapter \ref{chapter:methodology} describes briefly the all aspects of the development process from architecture and design to testing and debugging and performance evaluation. Details of design and architecture are described in chapter \ref{chapter:design}. Implementation is described in \ref{chapter:implementation}. Chapter \ref{chapter:performance} contains performance evaluation of the final implementation and impact of some optimizations. Later, in chapter \ref{chapter:use_cases} use cases and applications are discussed. Chapter \ref{chapter:integration} details integration with online judge and challenges involved. In chapter \ref{chapter:future_work} future work and opportunities are discussed. Finally, chapter \ref{chapter:conclusion} contains the conclusion.
+
+\chapter{Literature overview}\label{chapter:literature_overview}
+
+\chapter{Methodology}\label{chapter:methodology}
+
+\chapter{Design}\label{chapter:design}
+
+\chapter{Implementation}\label{chapter:implementation}
+
+\chapter{Performance Evaluation}\label{chapter:performance}
+
+\chapter{Use Cases and Applications}\label{chapter:use_cases}
+
+\chapter{Integration with Online Judge}\label{chapter:integration}
+
+\chapter{Future work and Opportunities}\label{chapter:future_work}
+
+\chapter{Conclusion}\label{chapter:conclusion}
 
 % Is to create a sandbox optimized for an online judge i.e. optimized for running the same program multiple times with different input. Also the sandbox has to be capable enough to allow running a compiler. However the below assumptions must be met:
 % \begin{itemize}
@@ -212,19 +248,17 @@ The goal of this thesis is to create an efficient sandbox capable of safely isol
 %     \item Hostname isolation
 % \end{itemize}
 
-% The another goal is to compare the sandbox and its efficiency to rootless containers that are a related solution.
+% \section{Structure of the thesis}
 
-% While the sandbox needs to isolate network, the goal is not to provide outer network (e.g. internet) access to the sandboxed programs.
+% Chapter \ref{chapter:kernel_features} contains brief summary of the Linux kernel features employed by the sandbox. Chapter \ref{chapter:sandbox_design} describes the sandbox and its design. In chapter \ref{chapter:comparison_with_rootless_containers} comparison with the rootless containers is described.
 
-\section{Structure of the thesis}
+% \chapter{Kernel features}\label{chapter:kernel_features}
 
-Chapter \ref{chapter:kernel_features} contains brief summary of the Linux kernel features employed by the sandbox. Chapter \ref{chapter:sandbox_design} describes the sandbox and its design. In chapter \ref{chapter:comparison_with_rootless_containers} comparison with the rootless containers is described.
+% % \chapter{Design considerations}\label{chapter:design_considerations}
 
-\chapter{Kernel features}\label{chapter:kernel_features}
+% \chapter{Sandbox design}\label{chapter:sandbox_design}
 
-\chapter{Sandbox design}\label{chapter:sandbox_design}
-
-\chapter{Comparison with rootless containers}\label{chapter:comparison_with_rootless_containers}
+% \chapter{Comparison with rootless containers}\label{chapter:comparison_with_rootless_containers}
 
 \iffalse
 TODO
