@@ -65,7 +65,7 @@
 \usepackage{caption} % makes clicking figure \ref navigate to the top of the figure instead of the caption
 % End hrefs
 
-\usepackage{biblatex}
+\usepackage[dateabbrev=false,date=iso,urldate=iso]{biblatex}
 \usepackage{csquotes}
 
 \addbibresource{references.bib}
@@ -153,7 +153,7 @@ We describe the encountered limitation and challenges around enforcing safety an
 
 Secure execution environments are commonplace these days, from containers and virtual machines on servers to sandboxes on laptop and smartphones --- most of which run on Linux. They are used to securely execute untrusted code, as well as trusted programs to prevent damage escalation in the event of unknown vulnerabilities. Their key features are isolation, limiting resource usage, and accounting for resource consumption.
 
-The features of Linux allow the creation of simple yet effective and efficient secure environments. They work at application runtime, so in most cases existing software does not need to be adapted to use them. This makes them easily applicable, and explains why they adoption is growing.
+The features of Linux allow the creation of simple yet effective and efficient secure environments. They work at application runtime, so in most cases existing software does not need to be adapted to use them. This makes them easily applicable, and explains why their adoption is growing.
 
 In this thesis, the most important application of sandboxing are online judge systems. Online judge systems have beneficial role in programming education and competitive programming. They allow testing user-provided solution to a specific problem. The solution is run on a predefined test cases in order to check if it is valid. In such platforms isolating the compilation and running of the solution is essential to provide security and robustness of the platform itself.
 
@@ -161,15 +161,21 @@ Historically, isolation techniques evolved together with the online judge platfo
 
 Online education platforms greatly facilitate teaching and learning programming. They provide quick feedback on the correctness of the code the user submits. They are used in schools and universities and provide great learning opportunities for all.
 
+Moreover, a versatile sandbox has applications outside online judging platforms. For example, it can be used to sanitize compiling a PDF form \LaTeX~sources or for safe execution of untrusted server-side scripts in web applications.
+
 \section{Goal of the thesis}
 
-The goal of the thesis is to design, implement and integrate a new sandbox for the Sim project \cite{sim_project}. The Sim project \cite{sim_project} is an online platform for preparing people for and carrying out algorithmic contests. It has an online judge with a sandbox specially developed for this use case. Over the years the sandbox became a limitation. It only allows running a single-threaded statically linked executable of programs written in C, C++ or Pascal. The new sandbox will allow supporting more programming languages and improve security of the solution compilation stage.
+The goal of the thesis is to design, implement and integrate a new sandbox for the Sim project \cite{sim_project}. The Sim project is an online platform for preparing people for and carrying out algorithmic contests. The project started in 2012 and is developed by me since the beginning. It is used at the XIII High School in Szczecin and programming camps to teach young people programming and algorithms. It has an online judge with a sandbox specially developed for this use case. Over the years the sandbox became a limitation. It only allows running a single-threaded statically linked executable of programs written in C, C++ or Pascal. The new sandbox will allow supporting more programming languages and improve security of the solution compilation stage.
 
 \subsection{Requirements}
 
 The new sandbox needs to be optimized for running short-running programs as well as have minimal runtime overhead. Most of the test cases the solution is run on are small and solution completes them in less than 10ms. The goal is to allow hundreds of such sort-running runs per second, hence optimizing for short-running programs is important. However, minimizing overhead of the sandbox during the run is also important i.e. if the program runs X ms normally, the objective is that the program inside the new sandbox will also run approximately X ms.
 
-The new sandbox needs to be versatile. It will be used to secure the compilation of the solutions as well as running of the solutions. Compilation is a complicated process that involves parsing, translating, optimizing and linking the final program. It often requires running several executables e.g. compiler and linker, so allowing a single process inside sandbox is not enough. Sandboxing solution is simpler, because it is a single process. But since it is often short-running, the overhead needs to be minimal.
+The new sandbox needs to be versatile. It will be used to secure the compilation of the solutions as well as running of the solutions. Compilation is a complicated process that involves parsing, translating, optimizing and linking the final program. For languages like C, C++ and Rust it involves running several executables in coordination e.g. compiler and linker i.e. more than one process at a moment --- the sandbox needs to support that.
+
+Sandboxing needs to have a low overhead. Apart from small test where solution runs quickly (a matter of milliseconds), almost always the solution is run on big test cases, where it may need several seconds for it to solve the problem. Increasing this time as little as possible while the solution is running inside the sandbox is one of the primary objectives.
+
+It often requires running several executables e.g. compiler and linker, so allowing a single process inside sandbox is not enough. Sandboxing solution is simpler, because it is a single process. But since it is often short-running, the overhead needs to be minimal.
 
 The sandbox needs to allow limiting resources. Real time, CPU time, memory -- these need to be limited not only for the robustness of the platform, but specific problems require different limits. The goal of some problems is to solve it with very restricted memory e.g. find a missing integer in a random permutation of integers $1, \ldots, n$ without one element, but in constant memory.
 
@@ -185,23 +191,17 @@ Containers provide much lower overhead: setup of an order of milliseconds and ne
 
 Rootless are containers \cite{rootless_containers_rs} that can be created and run by an unprivileged user are the almost perfect solution to the problem. They provide almost all of the functionality of the normal containers but without the need to engage a privileged user. However, they often use setuid binaries and that is undesirable \cite{podman_rootless_containers_presentation}. Also they are not optimized to run sequences of short-running programs. In this thesis we will create a sandbox that uses the same techniques as rootless containers but will be optimized for running sequences of short-running programs.
 
-\section{Scope}
+% \section{Scope}
 
-The sandbox is implemented in C++ and runs only on Linux. The implementation was tested on x86\_64 but should also work on x86 or arm64, due to no architecture specific parts. Only seccomp filters may need to be adapted for other architectures, but the sandbox itself uses user-provided seccomp filters so it should work out of the box.
+% The sandbox is implemented in C++ and runs only on Linux. The implementation was tested on x86\_64 but should also work on x86 or arm64, due to no architecture specific parts. Only seccomp filters may need to be adapted for other architectures, but the sandbox itself uses user-provided seccomp filters so it should work out of the box.
 
-The sandbox uses linux namespaces to isolate the sandboxed program and cgroups to limit resources and provide resource usage accounting.
+% The sandbox uses linux namespaces to isolate the sandboxed program and cgroups to limit resources and provide resource usage accounting.
 
-A sandbox client in Rust language would be beneficial for the broader adoption of the sandbox, but is intentionally out of scope of this thesis.
-
-\section{Significance}
-
-A highly efficient sandbox could improve user experience by reducing time the user waits for the program to be judged by the online judge platform and could enable supporting more programming languages.
-
-The versatile sandbox can also be used to e.g. sanitize compiling a PDF form \LaTeX~sources. It could also be used for safely executing untrusted server-side scripts in web applications.
+% A sandbox client in Rust language would be beneficial for the broader adoption of the sandbox, but is intentionally out of scope of this thesis.
 
 \section{Structure of the Thesis}
 
-Chapter \ref{chapter:literature_overview} contains overview of sandboxing techniques and existing implementations and comparative analysis of them. Chapter \ref{chapter:methodology} describes briefly the all aspects of the development process from architecture and design to testing and debugging and performance evaluation. Details of design and architecture are described in chapter \ref{chapter:design}. Implementation is described in \ref{chapter:implementation}. Chapter \ref{chapter:performance} contains performance evaluation of the final implementation and impact of some optimizations. Later, in chapter \ref{chapter:use_cases} use cases and applications are discussed. Chapter \ref{chapter:integration} details integration with online judge and challenges involved. In chapter \ref{chapter:future_work} future work and opportunities are discussed. Finally, chapter \ref{chapter:conclusion} contains the conclusion.
+Chapter \ref{chapter:literature_overview} contains overview of sandboxing techniques and existing implementations and comparative analysis of them. In chapter \ref{chapter:methodology} are briefly described all aspects of the development process from architecture and design to testing and debugging and performance evaluation. Details of design and architecture are described in chapter \ref{chapter:design}. Implementation is described in \ref{chapter:implementation}. Chapter \ref{chapter:performance} contains performance evaluation of the final implementation and impact of some optimizations. Later, in chapter \ref{chapter:use_cases} use cases and applications are discussed. Chapter \ref{chapter:integration} details integration with online judge and challenges involved. In chapter \ref{chapter:future_work} future work and opportunities are discussed. Finally, chapter \ref{chapter:conclusion} contains the conclusion.
 
 \chapter{Literature overview}\label{chapter:literature_overview}
 
