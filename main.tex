@@ -122,7 +122,7 @@
 \klasyfikacja{Security and privacy -- Systems security -- Operating systems security}
 
 % Słowa kluczowe:
-\keywords{sandboxing, security, Linux, secure execution, arbitrary code execution} %, capabilities, cgroups, user namespace, PID namespace, mount namespace, rlimit, seccomp, ptrace}
+\keywords{sandboxing, security, Linux, secure execution, arbitrary code execution, judging system, } %, capabilities, cgroups, user namespace, PID namespace, mount namespace, rlimit, seccomp, ptrace}
 
 % Tu jest dobre miejsce na Twoje własne makra i~środowiska:
 % \newtheorem{defi}{Definicja}[section]
@@ -205,6 +205,17 @@ Chapter \ref{chapter:literature_overview} contains overview of sandboxing techni
 
 \chapter{Literature overview}\label{chapter:literature_overview}
 
+\section{Overview of Sandboxing Techniques}
+
+During the first programming competitions, the human judges manually read and verified the source code of the contestants' solutions \cite{tochev2010validating}. Over time this became infeasible and gave birth to automatic judge systems.
+
+To prevent people from interfering with the normal workflow of the competition e.g. Denial of Service Attack by exhausting memory resources, the automatic judge systems need a secure way to compile and execute a contest's solution. This is where sandboxes come into place.
+
+First sandboxes required modification of the OS kernel \cite{provos2003improving, garfinkel2004janus, garfinkel2004ostia, jana2011txbox, li2014minibox}. While they had little run-time overhead, some of them were limited to single-threaded applications \cite{merry2009using}.
+
+Later, as support for process tracing matured, \texttt{ptrace}-based sandboxes arose \cite{marevs2007perspectives, kolstad2009infrastructure, kim2013practical}. The problem with those solutions is the overhead that varies from around 75\% \cite{merry2010performance} to 160\% \cite{marevs2012new} for syscall-intensive programs. This overhead however, does not affect programming contest fairness much \cite{marevs2011fairness}. Supporting multi-threaded and multi-process programs while using \texttt{ptrace} is tricky, but possible \cite{kim2013practical}, because of Time of Check/Time of Use (TOCTOU) problem. \texttt{ptrace}-based sandbox needs to inspect syscall arguments, to do so it reads them, but for indirect arguments the multi-threaded or multi-process program can change the indirect argument after the check but before the kernel copies and uses the arguments thus creating a dangerous race condition.
+
+Finally, after the kernel support for containerization materialized, namespace and cgroup based sandboxes came into place \cite{marevs2012new, raknes2016nsroot, google/nsjail, flatpak, SPACEK20151665}. Contrary to ptrace-based sandboxes, namespace-based sandboxes have negligible runtime overhead \cite{marevs2012new}. Moreover, they don't require modifications of the Linux kernel and work on major Linux distributions out of the box.
 \chapter{Methodology}\label{chapter:methodology}
 
 \chapter{Design}\label{chapter:design}
