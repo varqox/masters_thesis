@@ -213,9 +213,81 @@ To prevent people from interfering with the normal workflow of the competition e
 
 First sandboxes required modification of the OS kernel \cite{provos2003improving, garfinkel2004janus, garfinkel2004ostia, jana2011txbox, li2014minibox}. While they had little run-time overhead, some of them were limited to single-threaded applications \cite{merry2009using}.
 
-Later, as support for process tracing matured, \texttt{ptrace}-based sandboxes arose \cite{marevs2007perspectives, kolstad2009infrastructure, kim2013practical}. The problem with those solutions is the overhead that varies from around 75\% \cite{merry2010performance} to 160\% \cite{marevs2012new} for syscall-intensive programs. This overhead however, does not affect programming contest fairness much \cite{marevs2011fairness}. Supporting multi-threaded and multi-process programs while using \texttt{ptrace} is tricky, but possible \cite{kim2013practical}, because of Time of Check/Time of Use (TOCTOU) problem. \texttt{ptrace}-based sandbox needs to inspect syscall arguments. To do so it has to read them, but the multi-threaded or multi-process program can change the indirect argument after the reading but before the kernel uses the argument. Thus creating a dangerous race condition.
+Later, as support for process tracing matured, \texttt{ptrace}-based sandboxes arose \cite{marevs2007perspectives, kolstad2009infrastructure, kim2013practical}. The problem with those solutions is the overhead that varies from around 75\% \cite{merry2010performance} to 160\% \cite{marevs2012new} for syscall-intensive programs. This overhead however, does not affect programming contest fairness much \cite{marevs2011fairness}. Supporting multi-threaded and multi-process programs while using \texttt{ptrace} is tricky, but possible \cite{kim2013practical}, because of Time of Check/Time of Use (TOCTOU) problem \cite{cwe_toctou}. \texttt{ptrace}-based sandbox needs to inspect syscall arguments. To do so it has to read them, but the multi-threaded or multi-process program can change the indirect argument after the reading but before the kernel uses the argument. Thus creating a dangerous race condition.
 
 Finally, after the kernel support for containerization materialized, namespace and cgroup based sandboxes came into place \cite{marevs2012new, netblue30/firejail, raknes2016nsroot, google/nsjail, flatpak, SPACEK20151665}. Contrary to ptrace-based sandboxes, namespace-based sandboxes have negligible runtime overhead \cite{marevs2012new}. Moreover, they don't require modifications of the Linux kernel and work on major Linux distributions out of the box.
+
+\section{Existing Implementations}
+
+\subsection{Modifying OS kernel}
+
+\subsubsection{Systrace}
+
+Systrace \cite{provos2003improving} intercepts all system calls in the kernel. It then decides if the syscall is safe by first checking a static list of safe syscalls. This step exists to reduce sandboxing performance overhead. If the syscall is not on the list, Systrace consults user space for a decision.
+
+The system avoids TOCTOU problem \cite{cwe_toctou} by copying syscall arguments to kernel memory before asking user space for a decision.
+
+\subsubsection{Janus}
+Janus \cite{garfinkel2004janus} adds a module to extend Linux \texttt{ptrace} API. Policies are defined using configuration files. By default all syscalls are denied. The configuration directive refers to the policy module that provides the logic for deciding whether to allow a particular system call or not. For example, \texttt{path} module could be used to restrict IO on certain file paths.
+
+\subsubsection{Ostia}
+Ostia \cite{garfinkel2004ostia} instead of filtering system calls it delegates them to an external agent that performs syscalls on behalf of the sandboxed process. Authors emphasize that such architecture simplifies the system and protects from TOCTOU problems \cite{cwe_toctou}.
+
+Ostia is implemented as two components: a small kernel module and a user space part. The module intercepts the syscall and copies its arguments via IPC link to the user space agent. The agent decides whether the call should be allowed, executes it and returns the results back over the IPC link. Worth noting is that not all syscalls have to delegated~---~some can be always allowed while others always denied.
+
+\subsubsection{TxBox}
+TxBox \cite{jana2011txbox} introduces system-level transaction support. Impact of the untrusted insecure code is limited by rolling back the system state after the execution. This provides strong isolation and works with arbitrary executables but requires significant out-of-tree patches of the OS kernel.
+
+\subsubsection{MiniBox}
+MiniBox \cite{li2014minibox} is a two-way sandbox that protects operating system from the application as well as application from the operating system. A modified version of TrustVisor \cite{mccune2010trustvisor} hypervisor runs OS and sandboxed application separately in a Mutually Isolated Execution Environment. The hypervisor is the only communication channel between the isolated application and the regular OS. This way application is protected from the malicious operating system. To protect the OS from the application, MiniBox uses Software Fault Isolation techniques from NaCl \cite{yee2010native}.
+
+\subsubsection{SACO sandbox}
+
+South African Computer Olympiad (SACO) sandbox \cite{merry2009using} inserts a custom kernel module that hooks up to Linux Security Module infrastructure. Although it has negligible time and memory overhead, it only supports support single-threaded programs.
+
+\subsection{\texttt{ptrace}-based}
+
+\subsubsection{MO sandbox}
+MO sandbox \cite{marevs2007perspectives, kolstad2009infrastructure} allows only single-threaded programs. It simply inspects arguments using \texttt{ptrace} and uses \texttt{setrlimit} \cite{man_getrlimit_setrlimit_prlimit} to limit resources. It is used by USA Computer Olympiad (USACO).
+
+\subsubsection{MBOX}
+MBOX \cite{kim2013practical} requires no superuser privileges. It makes use of seccomp BPF system call filtering to restrict allowed syscalls. BPF filtering is effective only for non-indirect arguments. To solve this, the installed BPF filter notifies the \texttt{ptrace} monitoring process if a further inspection of the arguments is needed for the decision to be made. To avoid TOCTOU problem \cite{cwe_toctou}, the MBOX allocates a read-only page to which it copies the indirect arguments before inspecting them and rewrites the syscall to use the rewritten arguments. The copied arguments are safe from modification because changing page access permissions is impossible without a syscall.
+
+\subsection{Using Linux namespaces}
+
+\subsubsection{Firejail}
+Firejail \cite{netblue30/firejail} uses seccomp BPF system call filtering and mount namespaces to restrict filesystem access. Similarly it uses process namespaces to limit view of running processes and network namespaces to restrict access to network devices. However, Firejail uses a \texttt{setuid} \cite{man_setuid} helper binary to achieve that. It allows resource limiting through \texttt{prlimit} \cite{man_getrlimit_setrlimit_prlimit}.
+
+\subsubsection{nsjail} \label{subsubsection:nsjail}
+nsjail \cite{google/nsjail} uses Linux namespaces, seccomp BPF system call filtering, \texttt{setrlimit} \cite{man_getrlimit_setrlimit_prlimit} and cgroups to limit resources. It does not require superuser privileges. However, it is not optimized for running short-running programs. Also, it does not provide statistics of the run.
+
+\subsubsection{nsroot}
+nsroot \cite{raknes2016nsroot} does not support resource limiting. It only makes use of Linux namespaces to restrict view of the file system, IPC and network devices.
+
+\subsubsection{Flatpak}
+Flatpak \cite{flatpak}, previously xdg-app, is a software packaging and sandboxing tool. Internally, it uses Bubblewrap sandbox. The Bubblewrap \cite{bubblewrap} is a \texttt{setuid} \cite{man_setuid} program that uses Linux namespaces and seccomp filters.
+
+\subsubsection{New Contest Sandbox}
+New Contest Sandbox \cite{marevs2012new} uses Linux namespaces and cgroups but not seccomp filters. It is used by Moe modular contest system (2012) \cite{marevs2012new}. Linux namespaces and cgroups have negligible overhead compared to \texttt{ptrace}.
+
+\subsubsection{APAC}
+APAC (Automatic Programming Assignment Checker) \cite{SPACEK20151665} uses Docker for sandboxing. It sets up a container for each run. Docker uses runC under the hood. While runtime overhead of Docker is low, the setup phase is primary source of overhead for short-running programs.
+
+\subsubsection{runC}
+runC \cite{cochak2021runc} uses the same features of Linux kernel as nsjail. However, configuration is stored as files instead of passed as command-line arguments. It has a special \texttt{rootless} mode which does not require superuser privileges. Given all of the above however, it is not optimized for running short-running programs. runC is used internally by Docker.
+
+\subsection{Other}
+
+\subsubsection{Google Native Client}
+Native Client (NaCl) \cite{yee2010native} uses static analysis and Software Fault Isolation. After the static analysis, the program runs at native speed but requires recompilation with special compiler and libraries. NaCl only works for x86 architecture.
+
+\section{Conclusion}
+
+Many sandboxing solutions exist. From all of the above, closest to our requirements is nsjail (see section \ref{subsubsection:nsjail}). However, it is not optimised for running short-running programs. In fact, none of the above solutions is optimised to run hundreds of short-running programs pers second.
+
+Considering the similarities of nsjail and our solution, in the performance analysis we will compare our sandbox to nsjail sandbox.
+
+% Overhead caused by context switches can be minimized by restricting the process or group of processes to a separate cpuset \cite{merry2010performance}.
 
 \chapter{Methodology}\label{chapter:methodology}
 
