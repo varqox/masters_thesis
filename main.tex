@@ -213,7 +213,7 @@ To prevent people from interfering with the normal workflow of the competition e
 
 First sandboxes required modification of the OS kernel \cite{provos2003improving, garfinkel2004janus, garfinkel2004ostia, jana2011txbox, li2014minibox}. While they had little run-time overhead, some of them were limited to single-threaded applications \cite{merry2009using}.
 
-Later, as support for process tracing matured, \texttt{ptrace}-based sandboxes arose \cite{marevs2007perspectives, kolstad2009infrastructure, kim2013practical}. The problem with those solutions is the overhead that varies from around 75\% \cite{merry2010performance} to 160\% \cite{marevs2012new} for syscall-intensive programs. This overhead however, does not affect programming contest fairness much \cite{marevs2011fairness}. Supporting multi-threaded and multi-process programs while using \texttt{ptrace} is tricky, but possible \cite{kim2013practical}, because of Time of Check/Time of Use (TOCTOU) problem \cite{cwe_toctou}. \texttt{ptrace}-based sandbox needs to inspect syscall arguments. To do so it has to read them, but the multi-threaded or multi-process program can change the indirect argument after the reading but before the kernel uses the argument. Thus creating a dangerous race condition.
+Later, as support for process tracing matured, \texttt{ptrace}-based sandboxes arose \cite{marevs2007perspectives, kolstad2009infrastructure, kim2013practical}. The problem with those solutions is the overhead that varies from around 75\% \cite{merry2010performance} to 160\% \cite{marevs2012new} for syscall-intensive programs. This overhead however, does not affect programming contest fairness much \cite{marevs2011fairness}. Supporting multi-threaded and multi-process programs while using \texttt{ptrace} is tricky, but possible \cite{kim2013practical}, because of Time of Check/Time of Use (TOCTOU) problem \cite{cwe_toctou}. \texttt{ptrace}-based sandbox needs to inspect syscall arguments. To do so it has to read them, but the multi-threaded or multi-process program can change the indirect argument after the reading but before the kernel uses the argument. This creates a dangerous race condition that has to be addressed.
 
 Finally, after the kernel support for containerization materialized, namespace and cgroup based sandboxes came into place \cite{marevs2012new, netblue30/firejail, raknes2016nsroot, google/nsjail, flatpak, SPACEK20151665}. Contrary to ptrace-based sandboxes, namespace-based sandboxes have negligible runtime overhead \cite{marevs2012new}. Moreover, they don't require modifications of the Linux kernel and work on major Linux distributions out of the box.
 
@@ -243,7 +243,7 @@ MiniBox \cite{li2014minibox} is a two-way sandbox that protects operating system
 
 \subsubsection{SACO sandbox}
 
-South African Computer Olympiad (SACO) sandbox \cite{merry2009using} inserts a custom kernel module that hooks up to Linux Security Module infrastructure. Although it has negligible time and memory overhead, it only supports support single-threaded programs.
+South African Computer Olympiad (SACO) sandbox \cite{merry2009using} inserts a custom kernel module that hooks up to Linux Security Module infrastructure. Although it has negligible time and memory overhead, it only supports single-threaded programs.
 
 \subsection{\texttt{ptrace}-based}
 
@@ -251,7 +251,7 @@ South African Computer Olympiad (SACO) sandbox \cite{merry2009using} inserts a c
 MO sandbox \cite{marevs2007perspectives, kolstad2009infrastructure} allows only single-threaded programs. It simply inspects arguments using \texttt{ptrace} and uses \texttt{setrlimit} \cite{man_getrlimit_setrlimit_prlimit} to limit resources. It is used by USA Computer Olympiad (USACO).
 
 \subsubsection{MBOX}
-MBOX \cite{kim2013practical} requires no superuser privileges. It makes use of seccomp BPF system call filtering to restrict allowed syscalls. BPF filtering is effective only for non-indirect arguments. To solve this, the installed BPF filter notifies the \texttt{ptrace} monitoring process if a further inspection of the arguments is needed for the decision to be made. To avoid TOCTOU problem \cite{cwe_toctou}, the MBOX allocates a read-only page to which it copies the indirect arguments before inspecting them and rewrites the syscall to use the rewritten arguments. The copied arguments are safe from modification because changing page access permissions is impossible without a syscall.
+MBOX \cite{kim2013practical} requires no superuser privileges. It makes use of seccomp BPF system call filtering to restrict allowed syscalls. BPF filtering is effective only for non-indirect arguments. To address this issue, the installed BPF filter notifies the \texttt{ptrace} monitoring process if further argument inspection is necessary to make a decision. To avoid TOCTOU problem \cite{cwe_toctou}, the MBOX allocates a read-only page to which it copies the indirect arguments before inspecting them and rewrites the syscall to use the rewritten arguments. The copied arguments are protected against modification because changing page access permissions is impossible without a syscall.
 
 \subsection{Using Linux namespaces}
 
@@ -283,7 +283,7 @@ Native Client (NaCl) \cite{yee2010native} uses static analysis and Software Faul
 
 \section{Conclusion}
 
-Many sandboxing solutions exist. From all of the above, closest to our requirements is nsjail (see section \ref{subsubsection:nsjail}). However, it is not optimised for running short-running programs. In fact, none of the above solutions is optimised to run hundreds of short-running programs pers second.
+Many sandboxing solutions exist. From all of the above, closest to our requirements is nsjail (see Section \ref{subsubsection:nsjail}). However, it is not optimised for running short-running programs. In fact, none of the above solutions is optimised to run hundreds of short-running programs per second.
 
 Considering the similarities of nsjail and our solution, in the performance analysis we will compare our sandbox to nsjail sandbox.
 
@@ -293,7 +293,7 @@ Considering the similarities of nsjail and our solution, in the performance anal
 
 \section{Client-server architecture}
 
-From the start the sandbox was based on the client-server architecture. This was the choice to minimize process cloning overhead \cite{redis-latency-generated-by-fork}, since it is a costly operation and happens for every sandboxing request. fork/clone needs to clone the whole address space of the process and the client proces could have a large address space. Server process that is executed from a separate executable has a minimal required address space size thus the cloning overhead is minimal for every request. Moreover, this architecture easily and safely allows sharing as much work as possible between the sandboxing requests which is the key to low overhead of running short-running programs.
+From the start the sandbox was based on the client-server architecture. This was the choice to minimize process cloning overhead \cite{redis-latency-generated-by-fork}, since it is a costly operation and happens for every sandboxing request. fork/clone needs to clone the whole address space of the process and the client process could have a large address space. Server process that is executed from a separate executable has a minimal required address space size therefore the cloning overhead is minimal for every request. Moreover, this architecture easily and safely allows sharing as much work as possible between the sandboxing requests which is the key to low overhead of running short-running programs.
 
 The client spawns the sandboxing server and sends sandboxing requests via UNIX domain socket to the server. The request contains executable, arguments, namespace configuration, resource limits, seccomp BPF filters and a pipe through which the result will be sent back.
 
@@ -301,24 +301,24 @@ At startup, the server creates cgroup hierarchy and some namespaces so that they
 
 \subsection{Sandboxing request handling}
 
-For each request, the server process (aka supervisor) spawns the PID 1 process of the new PID namespace. Then the init process setups namespaces and some of the resource limits. Finally the PID 1 process spawns the tracee process that finishes configuration and executes the requested executable. So for each sandboxing request we spawn exactly 2 processes. The PID 1 process is necessary for couple of reasons:
+For each request, the server process (aka supervisor) spawns the PID 1 process of the new PID namespace. Then the init process setups namespaces and some of the resource limits. Finally the PID 1 process spawns the tracee process that finishes configuration and executes the requested executable. So for each sandboxing request we spawn exactly 2 processes. The PID 1 process is necessary for a couple of reasons:
 \begin{itemize}
     \item It reaps the zombie processes in the tracee PID namespace.
-    \item It allows locking mount-points in the mount namespace. Tracee process is spawned in new user and mount namespace. Mounts are performed by the PID 1 process, therefore all mounts become locked together and cannot be individually unmounted by the tracee \cite{man_mount_namespaces}. These mounts cannot be performed by the supervisor process instead, because it would alter the mount namespace for subsequent requests.
-    \item Inside a PID namespace, sending signals to the PID 1 process is allowed only for signals that the PID 1 process installed signal handler for. This could change the behavior for some programs, thus a helper PID 1 process is needed.
+    \item It allows locking mount-points in the mount namespace. The tracee process is spawned in a new user and mount namespace. Mounts are performed by the PID 1 process, therefore all mounts become locked together and cannot be individually unmounted by the tracee \cite{man_mount_namespaces}. These mounts cannot be performed by the supervisor process instead, because it would alter the mount namespace for subsequent requests.
+    \item Inside a PID namespace, sending signals to the PID 1 process is allowed only for signals that the PID 1 process installed signal handler for. This could change the behavior for some programs, therefore a helper PID 1 process is needed.
 \end{itemize}
 
 \section{Cgroups}
 
-The server gains write access to cgroup hierarchy by being executed through \texttt{systemd-run -{}-user -{}-scope -{}-property=Delegate=yes -{}-collect}. It enables \texttt{pid}, \texttt{pid}, and \texttt{cpu} controllers for the below subgroups.
+The server gains write access to cgroup hierarchy by being executed through \texttt{systemd-run -{}-user -{}-scope -{}-property=Delegate=yes -{}-collect}. It enables \texttt{pid}, \texttt{memory}, and \texttt{cpu} controllers for the below subgroups.
 
-The server proces creates at startup the cgroup v2 hierarchy that looks as follows:
+The server process creates at startup the cgroup v2 hierarchy that looks as follows:
 \begin{itemize}
-    \item \texttt{/supervisor} --- cgroup of the supervisor process
-    \item \texttt{/pid1} --- cgroup of the pid1 process
-    \item \texttt{/tracee} --- cgroup of the tracee processes
+    \item \texttt{/supervisor} --- cgroup of the supervisor process,
+    \item \texttt{/pid1} --- cgroup of the pid1 process,
+    \item \texttt{/tracee} --- cgroup of the tracee processes.
 \end{itemize}
-And places the supervisor process in its cgroup. Subsequent processes are placed in their cgroups by making use of \texttt{CLONE\_INTO\_CGROUP} flag.
+After creation of the hierarchy it places the supervisor process in its cgroup. Subsequent processes are placed in their cgroups by making use of \texttt{CLONE\_INTO\_CGROUP} flag.
 \newline
 \texttt{/tracee} cgroup allows:
 \begin{itemize}
@@ -334,35 +334,35 @@ And places the supervisor process in its cgroup. Subsequent processes are placed
 
 \section{Linux namespaces}
 
-Linux only allows creation of user namespaces by unprivileged user. However, after entering a new user namespace the process gains all privileges inside the namespace and can create other namespaces.
+Linux allows unprivileged users to create user namespaces only. However, after entering a new user namespace the process gains all privileges inside the namespace and can create other namespaces.
 \newline
 The supervisor process creates the following namespaces:
 \begin{itemize}
-    \item user namespace --- in order to create other namespaces and hide user ID and group ID
-    \item cgroup namespace --- to allow mounting detached cgroups v2 hierarchy
-    \item mount namespace --- to allow mounting detached cgroups v2 hierarchy
-    \item network namespace --- to disconnect every tracee from network devices, done once, as it is costly
-    \item IPC namespace --- to isolate every tracee from other processes' IPC, done once, for optimization
-    \item UTS namespace --- to isolate every tracee from host's hostname, done once, for optimization
-    \item time namespace --- to isolate every tracee from host's time namespace, done once, for optimization
+    \item user namespace --- in order to create other namespaces and hide user ID and group ID,
+    \item cgroup namespace --- to allow mounting detached cgroups v2 hierarchy,
+    \item mount namespace --- to allow mounting detached cgroups v2 hierarchy,
+    \item network namespace --- to disconnect every tracee from network devices, done once, as it is costly,
+    \item IPC namespace --- to isolate every tracee from other processes' IPC, done once, for optimization,
+    \item UTS namespace --- to isolate every tracee from host's hostname, done once, for optimization,
+    \item time namespace --- to isolate every tracee from host's time namespace, done once, for optimization.
 \end{itemize}
 The pid1 process creates the following namespaces:
 \begin{itemize}
-    \item user namespace --- in order to create other namespaces and hide user ID and group ID
-    \item mount namespace --- to allow mounting requested mount-point hierarchy
-    \item PID namespace --- to isolate tracee from accessing other processes
+    \item user namespace --- in order to create other namespaces and hide user ID and group ID,
+    \item mount namespace --- to allow mounting requested mount-point hierarchy,
+    \item PID namespace --- to isolate tracee from accessing other processes.
 \end{itemize}
 The tracee process creates the following namespaces:
 \begin{itemize}
-    \item user namespace --- in order to create other namespaces and hide user ID and group ID and lock the mount tree
-    \item mount namespace --- in lock the mount tree created by pid1
+    \item user namespace --- in order to create other namespaces and hide user ID and group ID and lock the mount tree,
+    \item mount namespace --- in lock the mount tree created by pid1.
 \end{itemize}
 
 \section{Inter-process communication}
 
-The client sends requests via UNIX domain socket to the supervisor process. The results are sent via pipe attached to the request. Pipe is attached to the request as a file descriptor using \texttt{SCM\_RIGHTS} control message \cite{man_unix}.
+The client sends requests via UNIX domain socket to the supervisor process. The results are sent via a pipe attached to the request. The pipe is attached to the request as a file descriptor using \texttt{SCM\_RIGHTS} control message \cite{man_unix}.
 
-The supervisor, pid1 and tracee process communicate via shared anonymous memory page. Such communication requires no syscalls, is fast and reliable. This page is automatically unmapped upon \texttt{execveat} syscall \cite{man_execveat} in tracee process, thus it is safe from tracee access.
+The supervisor, pid1 and tracee process communicate via shared anonymous memory page. Such communication requires no syscalls, is fast and reliable. This page is automatically unmapped upon \texttt{execveat} syscall \cite{man_execveat} in the tracee process, so it is protected from the tracee access.
 
 \section{Capabilities}
 
@@ -370,7 +370,7 @@ The supervisor process drops all capabilities, sets securebits and \texttt{NO\_N
 
 \section{Hardening}
 
-pid1 process, after spawning tracee enters a new cgroup namespace to limit view of other namespaces i.e. if the tracee somehow takes control of the pid1 process, it will not be able to raise its PID and memory limit. Moreover a seccomp filter is installed to limit allowed syscalls only to those needed for reaping orphaned zombie process, managing time limits and exiting upon tracee death.
+The pid1 process, after spawning the tracee enters a new cgroup namespace to limit view of other namespaces i.e. if the tracee somehow takes control of the pid1 process, it will not be able to raise its PID and memory limit. Moreover a seccomp filter is installed to limit allowed syscalls only to those needed for reaping the orphaned zombie process, managing time limits and exiting upon tracee death.
 
 \chapter{Implementation}\label{chapter:implementation}
 
