@@ -295,9 +295,38 @@ Considering the similarities of nsjail and our solution, in the performance anal
 
 From the start the sandbox was based on the client-server architecture. This was the choice to minimize process cloning overhead \cite{redis-latency-generated-by-fork}, since it is a costly operation and happens for every sandboxing request. fork/clone needs to clone the whole address space of the process and the client process could have a large address space. Server process that is executed from a separate executable has a minimal required address space size therefore the cloning overhead is minimal for every request. Moreover, this architecture easily and safely allows sharing as much work as possible between the sandboxing requests which is the key to low overhead of running short-running programs.
 
-The client spawns the sandboxing server and sends sandboxing requests via UNIX domain socket to the server. The request contains executable, arguments, namespace configuration, resource limits, seccomp BPF filters and a pipe through which the result will be sent back.
+The client spawns the sandboxing server and sends sandboxing requests via UNIX domain socket to the server. This is illustrated on the Figure \ref{fig:server_waits_for_request}. The request contains executable, arguments, namespace configuration, resource limits, seccomp BPF filters and a pipe through which the result will be sent back.
 
 At startup, the server creates cgroup hierarchy and some namespaces so that they won't have to be created later or their creation will be faster. Other utilities are also setup here to do it once instead of for every request. Then it starts accepting requests.
+
+\begin{figure}[h]
+\tikzset{>=latex} % set latex arrow tip
+\centering
+\begin{tikzpicture}[align=center]
+    \node [draw, densely dotted] (errors) {anonymous file\\for fatal errors};
+    \node [draw, above left=1cm and 0.1cm of errors, minimum height=1.4832815729996514cm, minimum width=2.4cm] (client) {client};
+    \node [draw, above right=1cm and 0.1cm of errors, minimum height=1.4832815729996514cm, minimum width=2.4cm] (supervisor) {supervisor\\process};
+
+    \draw[->] (client.-2) -- node[above] {UNIX socket \\ for requests} (supervisor.-178);
+    \draw[<-] (client) |- node[below] {} (errors);
+    \draw[->] (supervisor) |- node[below] {\texttt{stderr}} (errors);
+
+    \begin{scope}[on background layer]
+        \node [draw, dash dot, fit=(supervisor)] (server) {};
+        \node [above=0.1cm of server] {Sandbox server};
+    \end{scope}
+
+    % Legend
+    \matrix [draw, right] at ($(current bounding box.north west)+(0, 0.5)$) {
+        \draw[<-] (0,0) -- (0.5,0); & \node[right] {information flow}; \\
+        \draw node[right, draw] {x}; & \node[right] {process}; \\
+        \draw node[right, draw, densely dotted] {y}; & \node[right] {resource}; \\
+    };
+
+\end{tikzpicture}
+\caption{Sandbox server waits for requests. Client sends requests through the UNIX socket. Sandbox server will die on fatal error leaving the error message for the client in the anonymous file.}
+\label{fig:server_waits_for_request}
+\end{figure}
 
 \subsection{Sandboxing request handling}
 
@@ -307,6 +336,63 @@ For each request, the server process (aka supervisor) spawns the PID 1 process o
     \item It allows locking mount-points in the mount namespace. The tracee process is spawned in a new user and mount namespace. Mounts are performed by the PID 1 process, therefore all mounts become locked together and cannot be individually unmounted by the tracee \cite{man_mount_namespaces}. These mounts cannot be performed by the supervisor process instead, because it would alter the mount namespace for subsequent requests.
     \item Inside a PID namespace, sending signals to the PID 1 process is allowed only for signals that the PID 1 process installed signal handler for. This could change the behavior for some programs, therefore a helper PID 1 process is needed.
 \end{itemize}
+
+This is shown on the Figure \ref{fig:server_handles_request_after_execve}.
+
+\begin{figure}[h]
+\tikzset{>=latex} % set latex arrow tip
+\centering
+\begin{tikzpicture}[align=center]
+    \node [draw, densely dotted] (errors) {anonymous file\\for fatal errors};
+    \node [draw, above left=1cm and 0.1cm of errors, minimum height=1.4832815729996514cm, minimum width=2.4cm] (client) {client};
+    \node [draw, above right=1cm and 0.2cm of errors, minimum height=1.4832815729996514cm, minimum width=2.4cm] (supervisor) {supervisor\\process};
+
+    \node [draw, right=0cm and 0.9cm of supervisor, minimum height=1.4832815729996514cm, minimum width=2.4cm] (pid1) {PID 1\\process};
+
+    \node [draw, above right=-0.4cm and 0.5cm of pid1.east] (tracee_mid) {tracee\\process};
+    \node [draw, above=0.4cm of tracee_mid] (tracee_up) {tracee\\process};
+    \node [below=0.2cm of tracee_mid] (tracee_dots) {\ldots};
+    \node [draw, below=0.2cm of tracee_dots] (tracee_bottom) {tracee\\process};
+
+    \draw[->] (client.-2) -- node[above] {UNIX socket \\ for requests} (supervisor.-178);
+    \draw[<-] (client.-10) -- node[below] {response pipe} (supervisor.-170);
+    \draw[<-] (client) |- node[below] {} (errors);
+    \draw[->] (supervisor) |- node[below] {\texttt{stderr}} (errors);
+    \draw[<-, dashed] (supervisor) -- (pid1);
+    \draw[<-, dashed] (pid1) -- (tracee_mid);
+    \draw[<-, dashed] (pid1.20) -- (tracee_up);
+    \draw[<-, dashed] (pid1.-20) -- (tracee_bottom);
+
+    \begin{scope}[on background layer]
+        \draw [dash dot, rounded corners, blue!70, fill=blue!10]
+            ($(pid1.north west)+(-0.3,0.3)$) .. controls +(0:3cm) and +(270:1.5cm) ..
+            ($(tracee_up.north west)+(-0.3,0.3)$) --
+            ($(tracee_up.north east)+(0.3,0.3)$) --
+            ($(tracee_bottom.south east)+(0.3,-0.3)$) --
+            ($(tracee_bottom.south west)+(-0.3,-0.3)$) .. controls +(90:1.2cm) and +(0:3cm) .. node[below, xshift=-8mm, pos=0.7, blue] {PID namespace}
+            ($(pid1.south west)+(-0.3,-0.3)$) --
+            cycle;
+    \end{scope}
+
+    \begin{scope}[on background layer]
+        \coordinate (top_right) at ($(tracee_up.north east)+(0.4,0.4)$);
+        \coordinate (bottom_right) at ($(tracee_bottom.south east)+(0.4,-0.4)$);
+        \node [draw, dash dot, fit=(supervisor) (pid1) (top_right) (bottom_right)] (server) {};
+        \node [above=0.1cm of server] {Sandbox server};
+    \end{scope}
+
+    % Legend
+    \matrix [draw, right] at (current bounding box.north west) {
+        \draw[<-] (0,0) -- (0.5,0); & \node[right] {information flow}; \\
+        \draw[<-, dashed] (0,0) -- (0.5,0); & \node[right] {parentship}; \\
+        \draw node[right, draw] {x}; & \node[right] {process}; \\
+        \draw node[right, draw, densely dotted] {y}; & \node[right] {resource}; \\
+    };
+
+\end{tikzpicture}
+\caption{Sandbox server handles a request, at the moment after executing the requested executable. Sandbox server will die on fatal error leaving the error message for the client in the anonymous file. Sandbox server consist of the supervisor process and its child --- the PID 1 process that is spawned for each request. The PID 1 process performs role of the init process in the PID namespace of tracee processes.}
+\label{fig:server_handles_request_after_execve}
+\end{figure}
 
 \section{Cgroups}
 
@@ -328,7 +414,7 @@ After creation of the hierarchy it places the supervisor process in its cgroup. 
     \item Setting process/tread number limit by writing \texttt{/tracee/pids.max}.
     \item Setting memory hard limit by writing \texttt{/tracee/memory.max}.
     \item Setting CPU usage limit by writing \texttt{/tracee/cpu.max}.
-    \item Disabling PSI accounting to reduce the sandboxing overhead by writing 0 to \texttt{/tracee/cgroup.pressure} file.
+    \item Disabling PSI accounting to reduce the sandboxing overhead by writing 0 to \\\texttt{/tracee/cgroup.pressure} file.
 \end{itemize}
 \texttt{/tracee} cgroup needs to be deleted and recreated after each request to reset \texttt{/tracee/cpu.stat} and \texttt{/tracee/memory.peak} files.
 
@@ -339,8 +425,8 @@ Linux allows unprivileged users to create user namespaces only. However, after e
 The supervisor process creates the following namespaces:
 \begin{itemize}
     \item user namespace --- in order to create other namespaces and hide user ID and group ID,
-    \item cgroup namespace --- to allow mounting detached cgroups v2 hierarchy,
     \item mount namespace --- to allow mounting detached cgroups v2 hierarchy,
+    \item cgroup namespace --- to allow mounting detached cgroups v2 hierarchy,
     \item network namespace --- to disconnect every tracee from network devices, done once, as it is costly,
     \item IPC namespace --- to isolate every tracee from other processes' IPC, done once, for optimization,
     \item UTS namespace --- to isolate every tracee from host's hostname, done once, for optimization,
@@ -357,12 +443,118 @@ The tracee process creates the following namespaces:
     \item user namespace --- in order to create other namespaces and hide user ID and group ID and lock the mount tree,
     \item mount namespace --- in lock the mount tree created by pid1.
 \end{itemize}
+The above namespaces hierarchy is illustrated on the Figure \ref{fig:server_namespaces}.
+
+\begin{figure}[h]
+\tikzset{>=latex} % set latex arrow tip
+\centering
+\begin{tikzpicture}[align=center]
+    \node [draw, minimum height=0.8652475842497965cm, minimum width=1.4cm] (client) {client};
+
+    \node [draw, below=0.7cm of client, minimum height=1.4832815729996514cm, minimum width=2.4cm] (supervisor) {supervisor\\process};
+
+    \node [draw, below=0.7cm of supervisor] (pid1) {PID 1 process};
+
+    \node [draw, below left=0.7cm and -1.7cm of pid1] (tracee_mid) {tracee\\process};
+    \node [draw, left=0.3cm of tracee_mid] (tracee_left) {tracee\\process};
+    \node [right=0.1cm of tracee_mid] (tracee_dots) {\ldots};
+    \node [draw, right=0.1cm of tracee_dots] (tracee_right) {tracee\\process};
+
+    \draw[<-, dashed] (supervisor) -- (pid1);
+    \draw[<-, dashed] (pid1) -- (tracee_mid);
+    \draw[<-, dashed] (pid1.-150) -- (tracee_left);
+    \draw[<-, dashed] (pid1.-30) -- (tracee_right);
+
+    \begin{scope}[on background layer]
+        \draw[dash dot, rounded corners, darkgray!70, fill=darkgray!10]
+            ($(supervisor.north west)+(-0.4,0.4)$) --
+            ($(supervisor.north east)+(0.4,0.4)$) -- node[above, xshift=12mm, pos=0.6, darkgray] {user, mount,\\cgroup, network,\\IPC, UTS, time\\namespaces}
+            ($(tracee_right.north east)+(0.4,0.4)$) --
+            ($(tracee_right.south east)+(0.4,-0.4)$) --
+            ($(tracee_left.south west)+(-0.4,-0.4)$) --
+            ($(tracee_left.north west)+(-0.4,0.4)$) --
+            cycle;
+    \end{scope}
+
+    \begin{scope}[on background layer]
+        \draw[dash dot, rounded corners, blue!70, fill=blue!10]
+            ($(pid1.north west)+(-0.3,0.3)$) --
+            ($(pid1.north east)+(0.3,0.3)$) --
+            ($(tracee_right.north east)+(0.3,0.3)$) --
+            ($(tracee_right.south east)+(0.3,-0.3)$) --
+            ($(tracee_left.south west)+(-0.3,-0.3)$) --
+            ($(tracee_left.north west)+(-0.3,0.3)$) -- node[above, xshift=-12mm, pos=0.3, blue] {user, mount, PID\\namespaces}
+            cycle;
+    \end{scope}
+
+    \begin{scope}[on background layer]
+        \draw[dash dot, rounded corners, red!70, fill=red!10]
+            ($(tracee_right.north east)+(0.2,0.2)$) -- node[above, xshift=13mm, pos=0.8, red] {user, mount\\namespaces}
+            ($(tracee_right.south east)+(0.2,-0.2)$) --
+            ($(tracee_left.south west)+(-0.2,-0.2)$) --
+            ($(tracee_left.north west)+(-0.2,0.2)$) --
+            cycle;
+    \end{scope}
+
+    % Legend
+    \matrix [draw, right] at ($(current bounding box.north west)+(-2, -1)$) {
+        \draw[<-, dashed] (0,0) -- (0.5,0); & \node[right] {parentship}; \\
+        \draw[-, dash dot] (0,0) -- (0.5,0); & \node[right] {namespace boundary}; \\
+        \draw node[right, draw] {x}; & \node[right] {process}; \\
+    };
+
+\end{tikzpicture}
+\caption{Namespaces hierarchy of the sandbox server processes.}
+\label{fig:server_namespaces}
+\end{figure}
 
 \section{Inter-process communication}
 
 The client sends requests via UNIX domain socket to the supervisor process. The results are sent via a pipe attached to the request. The pipe is attached to the request as a file descriptor using \texttt{SCM\_RIGHTS} control message \cite{man_unix}.
 
-The supervisor, pid1 and tracee process communicate via shared anonymous memory page. Such communication requires no syscalls, is fast and reliable. This page is automatically unmapped upon \texttt{execveat} syscall \cite{man_execveat} in the tracee process, so it is protected from the tracee access.
+The supervisor, pid1 and tracee process communicate via shared anonymous memory page. Figure \ref{fig:server_handles_request_before_execve} illustrates this communication. Such communication requires no syscalls, is fast and reliable. This page is automatically unmapped upon \texttt{execveat} syscall \cite{man_execveat} in the tracee process, so it is protected from the tracee access.
+
+\begin{figure}[h]
+\tikzset{>=latex} % set latex arrow tip
+\centering
+\begin{tikzpicture}[align=center]
+    \node [draw, densely dotted] (errors) {anonymous file\\for fatal errors};
+    \node [draw, above left=1cm and 0.1cm of errors, minimum height=1.4832815729996514cm, minimum width=2.4cm] (client) {client};
+    \node [draw, above right=1cm and 0.2cm of errors, minimum height=1.4832815729996514cm, minimum width=2.4cm] (supervisor) {supervisor\\process};
+
+    \node [draw, right=0cm and 0.7cm of supervisor, minimum height=1.4832815729996514cm, minimum width=2.4cm] (init) {init\\process};
+
+    \node [draw, right=0cm and 0.7cm of init, minimum height=1.4832815729996514cm, minimum width=2.4cm] (tracee) {tracee\\process};
+
+    \node [draw, above=1cm of init, densely dotted] (shmem) {shared memory\\for result};
+
+    \draw[->] (client.-2) -- node[above] {UNIX socket \\ for requests} (supervisor.-178);
+    \draw[<-] (client.-10) -- node[below] {response pipe} (supervisor.-170);
+    \draw[<-] (client) |- node[below] {} (errors);
+    \draw[->] (supervisor) |- node[below] {\texttt{stderr}} (errors);
+    \draw[<-] (supervisor.north) |- (shmem);
+    \draw[<->] (shmem.south) -- (init.north);
+    \draw[<-] (shmem.east) -| (tracee.north);
+    \draw[<-, dashed] (supervisor) -- (init);
+    \draw[<-, dashed] (init) -- (tracee);
+
+    \begin{scope}[on background layer]
+        \node [draw, dash dot, fit=(supervisor) (init) (shmem) (tracee)] (server) {};
+        \node [above=0.1cm of server] {Sandbox server};
+    \end{scope}
+
+    % Legend
+    \matrix [draw, right] at (current bounding box.north west) {
+        \draw[<-] (0,0) -- (0.5,0); & \node[right] {information flow}; \\
+        \draw[<-, dashed] (0,0) -- (0.5,0); & \node[right] {parentship}; \\
+        \draw node[right, draw] {x}; & \node[right] {process}; \\
+        \draw node[right, draw, densely dotted] {y}; & \node[right] {resource}; \\
+    };
+
+\end{tikzpicture}
+\caption{Sandbox server handles a request, at the moment before executing the requested executable. Sandbox server will die on fatal error leaving the error message for the client in the anonymous file. Sandbox server consist of the supervisor process and its child --- the PID 1 process that is spawned for each request and its child --- the tracee process that will execute the requested executable. The tracee process saves in the shared memory the time just before \texttt{execveat} and signals the PID 1 process. The PID 1 process reads the time saved in the shared memory and starts the real and CPU timers. After the tracee process dies, the PID 1 process writes exit code and status of the tracee process and the time it died. Moreover, the shared memory is used to communicate fatal errors to the supervisor process.}
+\label{fig:server_handles_request_before_execve}
+\end{figure}
 
 \section{Capabilities}
 
@@ -371,6 +563,10 @@ The supervisor process drops all capabilities, sets securebits and \texttt{NO\_N
 \section{Hardening}
 
 The pid1 process, after spawning the tracee enters a new cgroup namespace to limit view of other namespaces i.e. if the tracee somehow takes control of the pid1 process, it will not be able to raise its PID and memory limit. Moreover a seccomp filter is installed to limit allowed syscalls only to those needed for reaping the orphaned zombie process, managing time limits and exiting upon tracee death.
+
+\section{Conclusion}
+
+Client-server architecture allows time-performance optimizations. Furthermore, it allows more common work to be done once and simplifies implementation. For instance, file descriptors do not leak to other process because there are no threads that could fork a new process. Request handling requires creation of 2 processes --- the PID 1 process and the tracee process that later executes the requested program. Resource limits and accounting is mostly performed by cgroups. Isolation is achieved by deft usage of Linux namespaces.
 
 \chapter{Implementation}\label{chapter:implementation}
 
