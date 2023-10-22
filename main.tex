@@ -295,7 +295,7 @@ Considering the similarities of nsjail and our solution, in the performance anal
 
 From the start the sandbox was based on the client-server architecture. This was the choice to minimize process cloning overhead \cite{redis-latency-generated-by-fork}, since it is a costly operation and happens for every sandboxing request. fork/clone needs to clone the whole address space of the process and the client process could have a large address space. Server process that is executed from a separate executable has a minimal required address space size therefore the cloning overhead is minimal for every request. Moreover, this architecture easily and safely allows sharing as much work as possible between the sandboxing requests which is the key to low overhead of running short-running programs.
 
-The client spawns the sandboxing server and sends sandboxing requests via UNIX domain socket to the server. This is illustrated on the Figure \ref{fig:server_waits_for_request}. The request contains executable, arguments, namespace configuration, resource limits, seccomp BPF filters and a pipe through which the result will be sent back.
+The client spawns the sandboxing server and sends sandboxing requests via UNIX domain socket to the server. This is illustrated on Figure \ref{fig:server_waits_for_request}. The request contains executable, arguments, namespace configuration, resource limits, seccomp BPF filters and a pipe through which the result will be sent back.
 
 At startup, the server creates cgroup hierarchy and some namespaces so that they won't have to be created later or their creation will be faster. Other utilities are also setup here to do it once instead of for every request. Then it starts accepting requests.
 
@@ -330,14 +330,14 @@ At startup, the server creates cgroup hierarchy and some namespaces so that they
 
 \subsection{Sandboxing request handling}
 
-For each request, the server process (aka supervisor) spawns the PID 1 process of the new PID namespace. Then the init process setups namespaces and some of the resource limits. Finally the PID 1 process spawns the tracee process that finishes configuration and executes the requested executable. So for each sandboxing request we spawn exactly 2 processes. The PID 1 process is necessary for a couple of reasons:
+For each request, the server process (aka supervisor) spawns the PID 1 process of the new PID namespace. Then the init process setups namespaces and some of the resource limits. Finally the PID 1 process spawns the tracee process that finishes configuration and executes the requested executable. So for each sandboxing request we spawn exactly 2 processes. However, the executed program can spawn new processes --- each of them is referred to as a "tracee process". The PID 1 process is necessary for a couple of reasons:
 \begin{itemize}
     \item It reaps the zombie processes in the tracee PID namespace.
     \item It allows locking mount-points in the mount namespace. The tracee process is spawned in a new user and mount namespace. Mounts are performed by the PID 1 process, therefore all mounts become locked together and cannot be individually unmounted by the tracee \cite{man_mount_namespaces}. These mounts cannot be performed by the supervisor process instead, because it would alter the mount namespace for subsequent requests.
     \item Inside a PID namespace, sending signals to the PID 1 process is allowed only for signals that the PID 1 process installed signal handler for. This could change the behavior for some programs, therefore a helper PID 1 process is needed.
 \end{itemize}
 
-This is shown on the Figure \ref{fig:server_handles_request_after_execve}.
+This is shown on Figure \ref{fig:server_handles_request_after_execve}.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
@@ -390,7 +390,7 @@ This is shown on the Figure \ref{fig:server_handles_request_after_execve}.
     };
 
 \end{tikzpicture}
-\caption{Sandbox server handles a request, at the moment after executing the requested executable. Sandbox server will die on fatal error leaving the error message for the client in the anonymous file. Sandbox server consist of the supervisor process and its child --- the PID 1 process that is spawned for each request. The PID 1 process performs role of the init process in the PID namespace of tracee processes.}
+\caption{Sandbox server handles a request, at the moment after executing the requested executable. Sandbox server will die on fatal error leaving the error message for the client in the anonymous file. Sandbox server consist of the supervisor process and its child --- the PID 1 process that is spawned for each request. The PID 1 process performs a role of the init process in the PID namespace of the tracee processes.}
 \label{fig:server_handles_request_after_execve}
 \end{figure}
 
@@ -443,7 +443,7 @@ The tracee process creates the following namespaces:
     \item user namespace --- in order to create other namespaces and hide user ID and group ID and lock the mount tree,
     \item mount namespace --- in lock the mount tree created by pid1.
 \end{itemize}
-The above namespaces hierarchy is illustrated on the Figure \ref{fig:server_namespaces}.
+The listed namespaces hierarchy is illustrated on Figure \ref{fig:server_namespaces}.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
@@ -522,24 +522,24 @@ The supervisor, pid1 and tracee process communicate via shared anonymous memory 
     \node [draw, above left=1cm and 0.1cm of errors, minimum height=1.4832815729996514cm, minimum width=2.4cm] (client) {client};
     \node [draw, above right=1cm and 0.2cm of errors, minimum height=1.4832815729996514cm, minimum width=2.4cm] (supervisor) {supervisor\\process};
 
-    \node [draw, right=0cm and 0.7cm of supervisor, minimum height=1.4832815729996514cm, minimum width=2.4cm] (init) {init\\process};
+    \node [draw, right=0cm and 0.7cm of supervisor, minimum height=1.4832815729996514cm, minimum width=2.4cm] (pid1) {PID 1\\process};
 
-    \node [draw, right=0cm and 0.7cm of init, minimum height=1.4832815729996514cm, minimum width=2.4cm] (tracee) {tracee\\process};
+    \node [draw, right=0cm and 0.7cm of pid1, minimum height=1.4832815729996514cm, minimum width=2.4cm] (tracee) {tracee\\process};
 
-    \node [draw, above=1cm of init, densely dotted] (shmem) {shared memory\\for result};
+    \node [draw, above=1cm of pid1, densely dotted] (shmem) {shared memory\\for result};
 
     \draw[->] (client.-2) -- node[above] {UNIX socket \\ for requests} (supervisor.-178);
     \draw[<-] (client.-10) -- node[below] {response pipe} (supervisor.-170);
     \draw[<-] (client) |- node[below] {} (errors);
     \draw[->] (supervisor) |- node[below] {\texttt{stderr}} (errors);
     \draw[<-] (supervisor.north) |- (shmem);
-    \draw[<->] (shmem.south) -- (init.north);
+    \draw[<->] (shmem.south) -- (pid1.north);
     \draw[<-] (shmem.east) -| (tracee.north);
-    \draw[<-, dashed] (supervisor) -- (init);
-    \draw[<-, dashed] (init) -- (tracee);
+    \draw[<-, dashed] (supervisor) -- (pid1);
+    \draw[<-, dashed] (pid1) -- (tracee);
 
     \begin{scope}[on background layer]
-        \node [draw, dash dot, fit=(supervisor) (init) (shmem) (tracee)] (server) {};
+        \node [draw, dash dot, fit=(supervisor) (pid1) (shmem) (tracee)] (server) {};
         \node [above=0.1cm of server] {Sandbox server};
     \end{scope}
 
@@ -566,7 +566,7 @@ The pid1 process, after spawning the tracee enters a new cgroup namespace to lim
 
 \section{Conclusion}
 
-Client-server architecture allows time-performance optimizations. Furthermore, it allows more common work to be done once and simplifies implementation. For instance, file descriptors do not leak to other process because there are no threads that could fork a new process. Request handling requires creation of 2 processes --- the PID 1 process and the tracee process that later executes the requested program. Resource limits and accounting is mostly performed by cgroups. Isolation is achieved by deft usage of Linux namespaces.
+Client-server architecture allows time-performance optimizations. Furthermore, it allows more common work to be done once and simplifies implementation. For instance, file descriptors do not leak to other processes because there are no threads that could fork a new process. Request handling requires creation of 2 processes --- the PID 1 process and the tracee process that later executes the requested program. Resource limits and accounting is mostly performed by cgroups. Isolation is achieved by deft usage of Linux namespaces.
 
 \chapter{Implementation}\label{chapter:implementation}
 
