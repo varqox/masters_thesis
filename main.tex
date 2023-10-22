@@ -512,7 +512,7 @@ The listed namespaces hierarchy is illustrated on Figure \ref{fig:server_namespa
 
 The client sends requests via UNIX domain socket to the supervisor process. The results are sent via a pipe attached to the request. The pipe is attached to the request as a file descriptor using \texttt{SCM\_RIGHTS} control message \cite{man_unix}.
 
-The supervisor, pid1 and tracee process communicate via shared anonymous memory page. Figure \ref{fig:server_handles_request_before_execve} illustrates this communication. Such communication requires no syscalls, is fast and reliable. This page is automatically unmapped upon \texttt{execveat} syscall \cite{man_execveat} in the tracee process, so it is protected from the tracee access.
+The supervisor, pid1 and tracee process communicate via shared anonymous memory page. Figure \ref{fig:server_handles_request_before_execveat} illustrates this communication. Such communication requires no syscalls, is fast and reliable. This page is automatically unmapped upon \texttt{execveat} syscall \cite{man_execveat} in the tracee process, so it is protected from the tracee access.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
@@ -553,7 +553,7 @@ The supervisor, pid1 and tracee process communicate via shared anonymous memory 
 
 \end{tikzpicture}
 \caption{Sandbox server handles a request, at the moment before executing the requested executable. Sandbox server will die on fatal error leaving the error message for the client in the anonymous file. Sandbox server consist of the supervisor process and its child --- the PID 1 process that is spawned for each request and its child --- the tracee process that will execute the requested executable. The tracee process saves in the shared memory the time just before \texttt{execveat} and signals the PID 1 process. The PID 1 process reads the time saved in the shared memory and starts the real and CPU timers. After the tracee process dies, the PID 1 process writes exit code and status of the tracee process and the time it died. Moreover, the shared memory is used to communicate fatal errors to the supervisor process.}
-\label{fig:server_handles_request_before_execve}
+\label{fig:server_handles_request_before_execveat}
 \end{figure}
 
 \section{Capabilities}
@@ -570,6 +570,295 @@ Client-server architecture allows time-performance optimizations. Furthermore, i
 
 \chapter{Implementation}\label{chapter:implementation}
 
+The project is written in C++, as it is a low-overhead, low-level language, but more convenient than C. Git is used as a Version Control System to track incremental implementation. Invaluable tool used during development was \texttt{strace} \cite{strace} that allowed easy inspection of system calls and their return value.
+
+\section{Interface}
+
+The client has to spawn the sandbox server --- the supervisor process.
+
+\begin{lstlisting}[language=C++, title=spawn\_supervisor(),numbers=left,belowskip=0pt,xleftmargin=12pt,basicstyle=\small\ttfamily,showstringspaces=false,numbersep=5pt,numberstyle=\small\ttfamily,columns=spaceflexible,keepspaces=true,tabsize=4,breaklines=true,commentstyle=\color{gray},keywordstyle=\color{blue}\bfseries,stringstyle=\color{purple}]
+SupervisorConnection spawn_supervisor();
+\end{lstlisting}
+
+Through \texttt{SupervisorConnection} object the client has access to requesting secure execution of programs.
+
+\begin{lstlisting}[language=C++, title=SupervisorConnection class,numbers=left,belowskip=0pt,xleftmargin=12pt,basicstyle=\small\ttfamily,showstringspaces=false,numbersep=5pt,numberstyle=\small\ttfamily,columns=spaceflexible,keepspaces=true,tabsize=4,breaklines=true,commentstyle=\color{gray},keywordstyle=\color{blue}\bfseries,stringstyle=\color{purple}]
+class SupervisorConnection {
+public:
+    SupervisorConnection(const SupervisorConnection&) = delete;
+    SupervisorConnection(SupervisorConnection&& sc) noexcept;
+    SupervisorConnection& operator=(const SupervisorConnection&) = delete;
+    SupervisorConnection& operator=(SupervisorConnection&&) noexcept = delete;
+    // Cancels pending and in-progress requests
+    ~SupervisorConnection() noexcept(false);
+
+    class RequestHandle;
+    class KillRequestHandle;
+
+    /// Sends the request and returns immediately without waiting for the request
+    /// to complete. Multiple requests can be send before awaiting completion
+    /// with await_result(). Throws if there is any error with the supervisor.
+    [[nodiscard]] RequestHandle
+    send_request(int executable_fd, Slice<std::string_view> argv,
+                 const RequestOptions&);
+
+    /// Sends the request and returns immediately without waiting for the request
+    /// to complete. Multiple requests can be send before awaiting completion
+    /// with await_result(). Throws if there is any error with the supervisor.
+    [[nodiscard]] RequestHandle
+    send_request(std::string_view executable_path, Slice<std::string_view> argv,
+                 const RequestOptions&);
+
+    /// Sends the request and returns immediately without waiting for the request
+    /// to complete. Multiple requests can be send before awaiting completion
+    /// with await_result(). Throws if there is any error with the supervisor.
+    [[nodiscard]] RequestHandle
+    send_request(Slice<std::string_view> argv,
+                 const RequestOptions& options = {});
+
+    /// Throws if there is any error with the supervisor.
+    Result await_result(RequestHandle&& request_handle);
+};
+\end{lstlisting}
+\texttt{send\_request()} returns \texttt{RequestHandle} object that can be used to obtain result of the execution, cancel execution or get the \texttt{KillRequestHandle}. Canceling execution is useful in case of errors in the client, where result of the execution as well as the execution itself is no longer needed. Tracee processes if they are executing are immediately killed and the result is discarded. Canceling an already finished request discards the result. Canceling the request before the server started handling it causes it to be skipped.
+\begin{lstlisting}[language=C++, title=SupervisorConnection::RequestHandle class,numbers=left,belowskip=0pt,xleftmargin=12pt,basicstyle=\small\ttfamily,showstringspaces=false,numbersep=5pt,numberstyle=\small\ttfamily,columns=spaceflexible,keepspaces=true,tabsize=4,breaklines=true,commentstyle=\color{gray},keywordstyle=\color{blue}\bfseries,stringstyle=\color{purple}]
+class SupervisorConnection {
+public:
+    class [[nodiscard]] RequestHandle {
+    public:
+        RequestHandle(const RequestHandle&) = delete;
+        RequestHandle(RequestHandle&& rh) noexcept;
+        RequestHandle& operator=(const RequestHandle&) = delete;
+        RequestHandle& operator=(RequestHandle&&) noexcept = delete;
+        // Cancels the request
+        ~RequestHandle() noexcept(false);
+        // no-op on already cancelled request
+        void cancel();
+        // returned fd can be polled with POLLIN
+        [[nodiscard]] int pollable_fd() const noexcept;
+        // can be called only once
+        KillRequestHandle get_kill_handle() noexcept;
+    };
+};
+\end{lstlisting}
+The \texttt{KillRequestHandle} object allows killing all tracee processes. Killing an already finished request is no-op. Killing the request before the server started handling it causes tracee to be immediately killed after \texttt{execveat}.
+\begin{lstlisting}[language=C++, title=SupervisorConnection::KillRequestHandle class,numbers=left,belowskip=0pt,xleftmargin=12pt,basicstyle=\small\ttfamily,showstringspaces=false,numbersep=5pt,numberstyle=\small\ttfamily,columns=spaceflexible,keepspaces=true,tabsize=4,breaklines=true,commentstyle=\color{gray},keywordstyle=\color{blue}\bfseries,stringstyle=\color{purple}]
+class SupervisorConnection {
+public:
+    class [[nodiscard]] KillRequestHandle {
+    public:
+        KillRequestHandle(const KillRequestHandle&) = delete;
+        KillRequestHandle(KillRequestHandle&& krh) noexcept;
+        KillRequestHandle& operator=(const KillRequestHandle&) = delete;
+        KillRequestHandle& operator=(KillRequestHandle&&) noexcept = delete;
+        ~KillRequestHandle() noexcept(false);
+        // no-op on already killed or cancelled request
+        void kill();
+    };
+};
+\end{lstlisting}
+\texttt{await\_result()} returns result of the execution of the request. It can either be an error with textual description. This error is not fatal to the supervisor process i.e. new requests can be sent. The result consist of the exit's code and status, and runtime statistics:
+\begin{itemize}
+    \item real time aka \texttt{result::Ok::runtime},
+    \item CPU user and CPU system time aka \texttt{result::Ok::cgroup::cpu\_time::user} and \\\texttt{result::Ok::cgroup::cpu\_time::system},
+    \item peak tracee cgroup memory usage aka \texttt{result::Ok::cgroup::peak\_memory\_in\_bytes}.
+\end{itemize}
+\begin{lstlisting}[language=C++, title=SupervisorConnection::await\_result() return type,numbers=left,belowskip=0pt,xleftmargin=12pt,basicstyle=\small\ttfamily,showstringspaces=false,numbersep=5pt,numberstyle=\small\ttfamily,columns=spaceflexible,keepspaces=true,tabsize=4,breaklines=true,commentstyle=\color{gray},keywordstyle=\color{blue}\bfseries,stringstyle=\color{purple}]
+/// Describes exit status of the sandboxed process
+struct Si {
+    int code; // siginfo_t::si_code from waitid() of the root process
+    int status; // siginfo_t::si_status from waitid() of the root process
+
+    [[nodiscard]] std::string description() const;
+};
+
+namespace result {
+struct Ok {
+    Si si;
+    std::chrono::nanoseconds runtime; // from CLOCK_MONOTONIC_RAW
+
+    struct Cgroup {
+        struct CpuTime {
+            std::chrono::microseconds user;
+            std::chrono::microseconds system;
+
+            [[nodiscard]] std::chrono::microseconds total() const noexcept {
+                return user + system;
+            }
+        } cpu_time;
+
+        uint64_t peak_memory_in_bytes;
+    } cgroup;
+};
+
+struct Error {
+    std::string description;
+};
+} // namespace result
+
+using Result = std::variant<result::Ok, result::Error>;
+\end{lstlisting}
+The \texttt{RequestOptions} allows specifying:
+\begin{itemize}
+    \item \texttt{stdin}, \texttt{stdout}, and \texttt{stderr} file descriptors. If \texttt{std::nullopt} is specified \texttt{/dev/null} is opened as the file descriptor.
+    \item Environment as array view of string views.
+    \item Linux namespace configuration:
+        \begin{itemize}
+            \item user ID mapping,
+            \item mounts and new root mount,
+        \end{itemize}
+    \item Cgroup resource limits: process and thread limit, memory limit, CPU maximum bandwidth.
+    \item \texttt{prlimit} hard limits.
+    \item Real time limit.
+    \item CPU time limit.
+    \item Seccomp BPF filter as a file descriptor. The decision to pass it as file descriptor is that it lowers the overhead of reusing the same filter multiple times --- a common scenario in a judge system. Only the file descriptor needs to be send with each request instead of the whole BPF filter contents. This allows the filter to be compiled once and passed for multiple requests with minimal overhead and simple API. An alternative is to extend API to save seccomp filters but it was considered unnecessary given the how small is the overhead of passing a single file descriptor.
+\end{itemize}
+\begin{lstlisting}[language=C++, title=SupervisorConnection::await\_result() return type,numbers=left,belowskip=0pt,xleftmargin=12pt,basicstyle=\small\ttfamily,showstringspaces=false,numbersep=5pt,numberstyle=\small\ttfamily,columns=spaceflexible,keepspaces=true,tabsize=4,breaklines=true,commentstyle=\color{gray},keywordstyle=\color{blue}\bfseries,stringstyle=\color{purple}]
+struct RequestOptions {
+    std::optional<int> stdin_fd = std::nullopt;
+    std::optional<int> stdout_fd = std::nullopt;
+    std::optional<int> stderr_fd = std::nullopt;
+    Slice<const std::string_view> env = {};
+
+    struct LinuxNamespaces {
+        struct User {
+            // nullopt will leave it the same as the outside effective
+            // user ID (euid)
+            std::optional<uid_t> inside_uid = std::nullopt;
+            // nullopt will leave it the same as the outside effective
+            // group ID (egid)
+            std::optional<gid_t> inside_gid = std::nullopt;
+        } user = {};
+
+        struct Mount {
+            struct MountTmpfs {
+                std::string_view path;
+                // Will be rounded up to page size multiple; 0 rounds up to
+                // page size due to technical limitations.
+                std::optional<uint64_t> max_total_size_of_files_in_bytes = 0;
+                std::optional<uint64_t> inode_limit = 0;
+                mode_t root_dir_mode = S_0755;
+                bool read_only = true; // make the mount read-only
+                // Do not allow programs to be executed on this mount
+                bool no_exec = true;
+            };
+
+            struct MountProc {
+                std::string_view path;
+                bool read_only = true; // make the mount read-only
+                // Do not allow programs to be executed on this mount
+                bool no_exec = true;
+            };
+
+            struct BindMount {
+                // Path to file or directory to bind mount
+                std::string_view source;
+                std::string_view dest; // path at which to bind mount
+                bool recursive = true; // create a recursive bind mount
+                bool read_only = true; // make the mount read-only
+                // Do not allow programs to be executed on this mount
+                bool no_exec = true;
+                // Do not follow symbolic links if source points to one
+                bool symlink_nofollow = false;
+            };
+
+            struct CreateDir {
+                std::string_view path;
+                mode_t mode = S_0755;
+            };
+
+            struct CreateFile {
+                std::string_view path;
+                mode_t mode = S_0644;
+            };
+
+            using Operation = std::variant<
+                MountTmpfs, MountProc, BindMount, CreateDir, CreateFile
+            >;
+
+            Slice<const Operation> operations = {};
+            std::optional<std::string_view> new_root_mount_path = std::nullopt;
+        } mount = {};
+    } linux_namespaces = {};
+
+    struct Cgroup {
+        // Every process or thread counts as 1
+        std::optional<uint32_t> process_num_limit = std::nullopt;
+        std::optional<uint64_t> memory_limit_in_bytes = std::nullopt;
+
+        struct CpuMaxBandwidth {
+            uint32_t max_usec;
+            uint32_t period_usec;
+        };
+
+        // Writes "$max_usec $period_usec" to cpu.max cgroup file
+        std::optional<CpuMaxBandwidth> cpu_max_bandwidth = std::nullopt;
+    } cgroup = {};
+
+    struct Prlimit {
+        // RLIMIT_AS
+        std::optional<uint64_t> max_address_space_size_in_bytes = std::nullopt;
+        // RLIMIT_CORE
+        std::optional<uint64_t> max_core_file_size_in_bytes = std::nullopt;
+        // RLIMIT_CPU
+        std::optional<uint64_t> cpu_time_limit_in_seconds = std::nullopt;
+        // RLIMIT_FSIZE
+        std::optional<uint64_t> max_file_size_in_bytes = std::nullopt;
+        // RLIMIT_NOFILE
+        std::optional<uint64_t> file_descriptors_num_limit = std::nullopt;
+        // RLIMIT_STACK
+        std::optional<uint64_t> max_stack_size_in_bytes = std::nullopt;
+    } prlimit = {};
+
+    std::optional<std::chrono::nanoseconds> time_limit = std::nullopt;
+    std::optional<std::chrono::nanoseconds> cpu_time_limit = std::nullopt;
+    // For starting tracee sandbox needs allowed syscalls:
+    // - kill()
+    // - execveat()
+    // - write()
+    // - clock_getttime()
+    // - sched_yield()
+    // - pread64()
+    std::optional<int> seccomp_bpf_fd = std::nullopt;
+};
+\end{lstlisting}
+
+\section{Time limits}
+
+The PID 1 process controls the time limits. The tracee process, just before \texttt{execveat} saves current real time from \texttt{CLOCK\_MONOTONIC\_RAW} and CPU time from \texttt{cpu.stat} tracee cgroup file to the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}). The problem with \texttt{cpu.stat} file is that it is updated infrequently and just reading it in the young tracee process often gives 0 as the consumed CPU time of the tracee. Fortunately, executing \texttt{sched\_yield()} system call forces recalculation of the file and the values are no longer 0. This is why this syscall is required as allowed in the seccomp BPF filter.
+
+\subsection{Real time limit}
+
+After saving the current real time the tracee process signals the PID 1 process with \texttt{SIGUSR2}. The PID 1 process reads the saved real time and sets up a POSIX timer to expire at the moment of saved time + real time limit. Upon the timer expiration, \texttt{SIGUSR1} is sent by the kernel to the PID 1 process and it terminates all tracee processes by writing 1 to \texttt{cgroup.kill} file of the tracee cgroup.
+
+\subsection{CPU time limit}
+
+In case the tracee is not restricted to one process, the setup is analogous to real time except that there is no CPU timer for a cgroup of processes. Instead we calculate minimal period of time in which the CPU time limit could expire as follows: $\frac{\text{remaining cpu time}}{\text{max parallelism}}$, where max parallelism equals: $\min(\text{available threads}, \text{\texttt{process\_num\_limit}}, \text{\texttt{cpu\_max\_bandwidth} in threads})$. Upon the timer expiration the remaining cpu time is recalculated and the timer is rescheduled if the remaining cpu time is greater than 0. Timer expiration is signaled by the kernel as signal \texttt{SIGXCPU}. To prevent polling, the minimal timer expiration period is capped to have minimum value of 1ms --- this gives at most 1000 checks per second.
+
+In case the tracee is restricted to one process, the setup is different. After saving the current CPU time the tracee process signals the PID 1 process through a pipe. A signal cannot be used because \texttt{timer\_create} syscall and \texttt{clock\_getcpuclockid} library function are not marked async-signal-safe --- they are not specified to be safe to call inside a signal handler. An \texttt{eventfd} cannot be used either, because if tracee dies before writing the \texttt{eventfd}, the PID 1 process will wait indefinitely on the \texttt{read} syscall. With pipe \texttt{read} returns 0 when the other end becomes closed. With limit to one process we use the CPU timer of the tracee process and set up a timer to expire when the tracee exceeds the CPU time limit.
+
+In both cases, when the CPU time limit is exceeded, the PID 1 process and it terminates all tracee processes by writing 1 to \texttt{cgroup.kill} file of the tracee cgroup.
+
+\section{Runtime statistics}
+
+After the main tracee process (the first spawned) exists, the init process saves the current real time and the exit status in the shared memory unless the tracee set an error and exists. The kernel kills all remaining tracee processes (because the PID namespace's init process died). After the PID 1 process exists, the supervisor process reads the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}). It checks if there is an either tracee or PID 1 error. If there is one, it becomes the result of the request. If there is none, the supervisor process calculates:
+\begin{itemize}
+    \item real time using formula: $\text{time of tracee death} - \text{saved execveat real time}$,
+    \item CPU time using formula: $\text{CPU time read from \texttt{cpu.stat} file} - \text{saved execveat CPU time}$,
+    \item Peak memory usage by reading \texttt{memory.peak} tracee cgroup file.
+\end{itemize}
+
+\section{Error handling}
+
+Errors in supervisor process are considered fatal and are reported by writing to \texttt{stderr}. After writing errors, the supervisor process exists immediately. When the client tries to read the request result, the read will fail with \texttt{read} returning unexpected value 0. The client then ensures the supervisor process is dead and tries to read the error the supervisor wrote. If the client finds one it throws is, otherwise it throws \texttt{read} error.
+
+The PID 1 process and tracee process write error to the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}) and exit immediately. The supervisor process reports these errors as a request result.
+
+\section{Request sending and receiving}
+
+The request is sent via UNIX domain socket (see Figure \ref{fig:server_waits_for_request}). The request is serialized to custom binary format and sent: constant-length header with file descriptors and the body. On the other end (supervisor process) the header with file descriptors and later the request body. Then the request is deserialized and handled.
+
+\section{TODO...}
 \chapter{Performance Evaluation}\label{chapter:performance}
 
 \chapter{Use Cases and Applications}\label{chapter:use_cases}
