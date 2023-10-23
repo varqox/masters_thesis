@@ -636,6 +636,77 @@ The PID 1 process and tracee process write error to the shared memory (see Figur
 
 The request is sent via UNIX domain socket (see Figure \ref{fig:server_waits_for_request}). The request is serialized to custom binary format and sent: constant-length header with file descriptors and the body. On the other end (supervisor process) the header with file descriptors and later the request body. Then the request is deserialized and handled.
 
+\section{File descriptors}
+
+The sandbox server closes all file descriptors except the UNIX socket fd and opens \texttt{/dev/null} as \texttt{stdin}, \texttt{stdout}, and \texttt{stderr}. This allows no modification of the standard file descriptors if the request does not change sets them.
+
+All file descriptors are opened with \texttt{O\_CLOEXEC} flag so that they will not leak to the executed process. A unit test to check if any file descriptor leaks to the sandboxed program is in the test suite.
+
+The PID 1 process inherits all request standard file descriptors and passes them to the tracee process. It has to close them after spawning the tracee process. Consider a pipe of which one end is passed as a \texttt{stdin} to the sandboxed program. A pipe is broken if all file descriptors of one end become closed. If the PID 1 process did not close the standard file descriptors of the tracee, the pipe could not become broken until the PID 1 process dies. This changes the semantics of the pipe if the program is run inside the sandbox and is undesirable. Moreover, for hardening purposes the PID 1 process closes all unnecessary file descriptors after spawning tracee --- in case, the tracee somehow takes control of the PID 1 process.
+
+\section{Canceling request}
+
+The response to the request is passed via pipe that is provided alongside the request. If the pipe becomes broken i.e. the client closes the read end of the pipe, the request is considered cancelled and is immediately discarded if currently handled.
+
+\section{Killing request}
+
+Alongside request is send an \texttt{eventfd} file descriptor. The supervisor process monitors this file descriptor and if it becomes readable i.e. the client writes a value to it, the tracee is killed immediately. To avoid false-positive errors, if the request is killed before \texttt{execveat} syscall executing the requested program, killing of the tracee is delayed to the \texttt{execve} moment.
+
+\section{Sandbox server upon client death}
+
+The supervisor process monitors the UNIX socket through which the requests flow. If the other end becomes read and write closed, the supervisor recognises it as a death of the client process and dies immediately. The PID 1 process is configured to die upon the supervisor process death, and the kernel kills all tracee processes when the PID 1 process dies. Therefore, all server processes die.
+
+\section{PID 1 process upon supervisor death}
+
+The PID 1 process configures kernel to kill it upon the supervisor process death. This is done using \texttt{prctl}'s option \texttt{PR\_SET\_PDEATHSIG}. However, if the supervisor dies before the kernel configures the PID 1 process to die, the PID 1 process will still be alive and waste resources. To solve this one could check if the \texttt{getppid()} returns the expected PID of the supervisor process. However, this will not work, since the PID 1 process is in a new PID namespace, and \texttt{getppid()} will always return 0. A reliable solution is to pass pidfd file descriptor of the supervisor process and check if the supervisor process is dead by checking if the pidfd file descriptor became readable. This way, upon supervisor process death, the PID 1 process is either killed by the kernel or the PID 1 process detects the supervisor process death and kills itself.
+
+\section{Signals}
+
+\subsection{\texttt{SIGPIPE} in the supervisor process}
+
+Sending response to the client may generate \texttt{SIGPIPE} signal for the supervisor process if the client cancels the request approximately in the same moment. We have to ignore this signal in the supervisor process. However, this cannot be done using \texttt{SIG\_IGN} because this signal disposition is not reset upon \texttt{execveat} system call. We chose to install an empty signal handler for \texttt{SIGPIPE} so that the disposition of the signal handler is reset upon \texttt{execveat} in the tracee process.
+
+\subsection{Undefined Behavior Sanitizer}
+
+The code of the sandbox may be compiled with the Undefined Behavior Sanitizer (UBSan) support enabled. UBSan install signal handlers for \texttt{SIGBUS}, \texttt{SIGFPE} and \texttt{SIGSEGV} signals. This is problematic, because tracee could send these signals to the PID 1 process. For the init process in the PID namespace, the kernel only allows sending signals for which the init process (here the PID 1 process) has installed the signal handlers \cite{man_pid_namespaces}. Therefore the PID 1 process resets signal dispositions of these handlers if the UBSan is used.
+
+\subsection{Tracee signals}
+
+Tracee can signals only to the visible processes and those are limited by the PID namespace. However, it can also send signals to its process group that can span multiple PID namespaces. See Figure \ref{fig:pgid_and_pid_namespace}. Therefore it is necessary to set new process group for the tracee processes. Furthermore, as a hardening, a new process group is set for the PID 1 process, in case the tracee takes control of it.
+
+However, it is better to also set new session id using \texttt{setsid} syscall instead of just process group id to avoid vulnerabilities connected to the current controlling terminal \cite{bubblewrap_cve}.
+
+\begin{figure}[h]
+\tikzset{>=latex} % set latex arrow tip
+\centering
+\begin{tikzpicture}[align=center]
+    \node [draw] (a) {process A};
+    \node [draw, right=0.7cm of a] (b) {process B};
+    \node [draw, below=0.5cm of b] (c) {process C};
+
+    \begin{scope}[on background layer]
+        \draw[dash dot, rounded corners, blue!70, fill=blue!10]
+            ($(b.north west)+(-0.3,0.3)$) --
+            ($(b.north east)+(0.3,0.3)$) -- node[above, xshift=14mm, pos=0.6, blue] {PID namespace}
+            ($(c.south east)+(0.3,-0.3)$) --
+            ($(c.south west)+(-0.3,-0.3)$) --
+            cycle;
+    \end{scope}
+
+    \begin{scope}[on background layer]
+        \draw[dashed, rounded corners]
+            ($(b.north east)+(0.15,0.15)$) --
+            ($(b.south east)+(0.15,-0.15)$) -- node[above, yshift=-5mm, xshift=-16mm, pos=0.6] {process group}
+            ($(a.south west)+(-0.15,-0.15)$) --
+            ($(a.north west)+(-0.15,0.15)$) --
+            cycle;
+    \end{scope}
+
+\end{tikzpicture}
+\caption{Process group can span multiple PID namespaces.}
+\label{fig:pgid_and_pid_namespace}
+\end{figure}
+
 \section{TODO...}
 \chapter{Performance Evaluation}\label{chapter:performance}
 
