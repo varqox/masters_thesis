@@ -707,6 +707,26 @@ However, it is better to also set new session id using \texttt{setsid} syscall i
 \label{fig:pgid_and_pid_namespace}
 \end{figure}
 
+\section{Running as superuser}
+
+The sandbox is not safe to be run by the superuser. If this is needed it has to be change to some unprivileged user. This is because many global system resources are still available, even after dropping the capabilities, e.g. rising privileges. The check is done in the supervisor process at startup. To make it user namespace-proof it is checked if \texttt{/dev/null} is the null device and if effective user id of the process equals owner of the file.
+
+\section{Performance optimizations}
+
+What could be done is done in the supervisor process at startup, before handling requests e.g. creating cgroups, entering network namespace, opening \texttt{/dev/null} as standard file descriptors. Sharing this work between requests ensures minimal overhead of handling the request i.e. it increases throughput (handled requests per second). Some of the optimizations are described in this section.
+
+\subsection{Seccomp filter of the PID 1 process}
+
+The seccomp filter of the PID 1 process is created and compiled in the supervisor process. Therefore it is done once instead of for every request.
+
+\subsection{Seccomp filter as file descriptor}
+
+The seccomp filter in a request is sent as a file descriptor. This avoids unnecessary copies of the seccomp filter contents in case the filter is large. Moreover, this is more evident if the same filter is used for subsequent requests.
+
+\subsection{Unsharing network, ipc, uts and time namespace}
+
+Unsharing of network, ipc, uts and time namespace is done in the supervisor process, only once, at startup. This avoids doing it for every request in the PID 1 process and has non-negligible impact on the performance (see Chapter \ref{chapter:performance}).
+
 \section{TODO...}
 \chapter{Performance Evaluation}\label{chapter:performance}
 
