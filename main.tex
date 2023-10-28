@@ -727,14 +727,150 @@ The seccomp filter in a request is sent as a file descriptor. This avoids unnece
 
 Unsharing of network, ipc, uts and time namespace is done in the supervisor process, only once, at startup. This avoids doing it for every request in the PID 1 process and has non-negligible impact on the performance (see Chapter \ref{chapter:performance}).
 
-\section{TODO...}
+\section{Integration with Online Judge Platform}
+
+To integrate the new sandbox with the Online Judge Platform, a suite for each language was needed. The suite sandboxes the compiler if the language is compiled and sandboxes the runtime of the solution. The following suites were implemented:
+
+\begin{itemize}
+    \item C, C++, Pascal and Rust --- fully compiled languages, the suite has to sandbox the compilation process and a fully compiled executable.
+    \item Python, Bash --- fully interpreted languages, the suite does not have a compilation stage, but requires sandboxing the interpreter when it runs the solution.
+\end{itemize}
+The Bash language is used only for testing due to its short start-up time.
+
+Each of the compilation and run stages requires creating a root file system and a seccomp BPF filter. Root file system has to include the following bind mounts (due to dynamically linked executables):
+\begin{itemize}
+    \item \texttt{/lib}
+    \item \texttt{/lib64}
+    \item \texttt{/usr/lib}
+    \item \texttt{/usr/lib64}
+\end{itemize}
+
+Additionally, C, and C++ compilers require \texttt{/usr/bin} and \texttt{/usr/include}.
+Pascal compiler requires \texttt{/usr/bin} and \texttt{/tmp}.
+Rust compiler requires \texttt{/usr/bin}, \texttt{/tmp}, and on Debian \texttt{/proc}.
+Bash and Python require no additional bind mounts.
+
+\subsection{Interactive problems}
+
+Interactive problems require the solution to communicate with the checker program i.e. the standard input of the solution is the standard output of the checker program and the standard output of the solution is the standard input of the checker program. Figure \ref{fig:intaractive_problem_communication_schema} illustrates this. To accomplish this we need two pipes, one for each communication channel. However, the judge needs to know which process died first to provide a reasonable verdict of checking the solution on the test.
+
+To see why, lets consider the two examples. In the first one, the checker decides early that the solution answered wrong, it terminates with a message ''Wrong answer''. Then, the pipe closes and the solution may get terminated by \texttt{SIGPIPE} for trying to write to the closed pipe. If this happens, the solution's abnormal death is caused by the checker exiting early. In this situation verdict ''Wrong answer'' is the expected verdict. In the second example, an incorrect solution terminates early and abnormally. In this case, the pipe closes after solution's death and the checker sees the output of the solution as incomplete and decides ''Wrong answer''. However, in this example an expected verdict would be ''Runtime error'' because the solution's death caused checker to decide ''Wrong answer'', therefore solution's abnormal death takes precedence here. If we don't know who died first in such cases, we cannot reliably deduce the primary cause and therefore cannot decide what is more important, a solution's abnormal death or the checker's verdict.
+
+\begin{figure}[h]
+\tikzset{>=latex} % set latex arrow tip
+\centering
+\begin{tikzpicture}[align=center]
+    \coordinate (center) at (0,0);
+    \node [draw, left=0.5cm of center] (solution) {solution};
+    \node [draw, right=0.5cm of center] (checker) {checker};
+
+    \draw[->] (checker.north) to [out=90, in=90] node[pos=0.05, above right] {\texttt{stdout}} node[pos=0.95, above left] {\texttt{stdin}} (solution.north);
+    \draw[->] (solution.south) to [out=-90, in=-90] node[pos=0.05, below left] {\texttt{stdout}} node[pos=0.95, below right] {\texttt{stdin}} (checker.south);
+\end{tikzpicture}
+\caption{Schema of the communication between the solution and the checker in an interactive problem.}
+\label{fig:intaractive_problem_communication_schema}
+\end{figure}
+
+To solve this, one could monitor the ends of the two pipes and see which end closes first. This is possible with e.g. \texttt{poll} syscall. However, it is prone to a race condition because the process monitoring the ends of the pipes may be scheduled after the checker and the solution process and see them as if they died at the same moment. E.g. the solution process dies abnormally, then checker decides ''Wrong answer'' and exists and only then the \texttt{poll} syscall returns reporting all ends of the pipes as closed without the information which closed first. To avoid this race condition and decide reliably 4 pipes are needed and a process that glues both pairs of pipes together and detect which end is closed first. See Figure \ref{fig:interactive_problem_real_communication}. As long as, the third process holds open inner four ends of the pipe pairs, the solution and the checker will not see their \texttt{stdin} and \texttt{stdout} as broken and will not proceed (to terminate, either normally or not). This way we can reliably detect who dies first and give a correct verdict in the scenarios where one's death causes the other's death. To efficiently pass messages in the third process, the \texttt{splice} syscall is used.
+
+\begin{figure}[h]
+\tikzset{>=latex} % set latex arrow tip
+\centering
+\begin{tikzpicture}[align=center]
+    \node [draw, minimum height=4cm] (communicator) {communication\\process};
+    \node [draw, left=0.5cm of communicator] (solution) {solution};
+    \node [draw, right=0.5cm of communicator] (checker) {checker};
+
+    \node [draw, dotted, above=1cm of solution] (pipe_up_left) {pipe};
+    \node [draw, dotted, below=1cm of solution] (pipe_down_left) {pipe};
+    \node [draw, dotted, above=1cm of checker] (pipe_up_right) {pipe};
+    \node [draw, dotted, below=1cm of checker] (pipe_down_right) {pipe};
+
+    \node [draw, circle, fill=black, inner sep=0, minimum size=1mm] (up_dot) at ($(pipe_up_left)!.5!(pipe_up_right)$) {};
+    \node [draw, circle, fill=black, inner sep=0, minimum size=1mm] (down_dot) at ($(pipe_down_left)!.5!(pipe_down_right)$) {};
+
+    \draw[->] (solution) -- node[left] {\texttt{stdout}} (pipe_down_left);
+    \draw[->] (pipe_down_left) -- (down_dot);
+    \draw[->] (down_dot) -- (pipe_down_right);
+    \draw[->] (pipe_down_right) -- node[right] {\texttt{stdin}} (checker);
+
+    \draw[->] (checker) -- node[right] {\texttt{stdout}} (pipe_up_right);
+    \draw[->] (pipe_up_right) -- (up_dot);
+    \draw[->] (up_dot) -- (pipe_up_left);
+    \draw[->] (pipe_up_left) -- node[left] {\texttt{stdin}} (solution);
+\end{tikzpicture}
+\caption{This is how communication between the solution and the checker is implemented. Two pairs of pipes are used to be able to detect which process dies first --- the solution or the checker. Because the communication process does not close its ends of the pipes first, it can detect which process died first without causing the second to die because of a broken pipe. To efficiently pass messages in the communication process, the \texttt{splice} syscall is used.}
+\label{fig:interactive_problem_real_communication}
+\end{figure}
+
+\subsection{Non-interactive problems}
+
+In the non-interactive problems, the semantics of the input is read-once and of the output is write-once. To achieve this without disallowing \texttt{dup}'ing, \texttt{close}'ing, \texttt{mmap}'ping, \texttt{pread}'ing etc. of the standard input and output file descriptors, we use pipes that are read-once and write-once. See Figure \ref{fig:noninteractive_problem_communication}. Input file is piped to \texttt{stdin} of the solution, and solution's output is piped to the output file. To efficiently pass messages between a pipe and a file the \texttt{splice} syscall is used.
+
+\begin{figure}[h]
+\tikzset{>=latex} % set latex arrow tip
+\centering
+\begin{tikzpicture}[align=center]
+    \node [draw, minimum height=4cm] (communicator) {communication\\process};
+    \node [draw, right=0.5cm of communicator] (solution) {solution};
+    \node [left=0.5cm of communicator] (left_node) {\phantom{solution}};
+
+    \node [draw, dotted, above=1cm of left_node] (input_file) {input file};
+    \node [draw, dotted, below=1cm of left_node] (output_file) {output file};
+    \node [draw, dotted, above=1cm of solution] (pipe_up) {pipe};
+    \node [draw, dotted, below=1cm of solution] (pipe_down) {pipe};
+
+    \node [draw, circle, fill=black, inner sep=0, minimum size=1mm] (up_dot) at ($(input_file)!.5!(pipe_up)$) {};
+    \node [draw, circle, fill=black, inner sep=0, minimum size=1mm] (down_dot) at ($(output_file)!.5!(pipe_down)$) {};
+
+    \draw[->] (input_file) -- (up_dot);
+    \draw[->] (up_dot) -- (pipe_up);
+    \draw[->] (pipe_up) -- node[right] {\texttt{stdin}} (solution);
+    \draw[->] (solution) -- node[right] {\texttt{stdout}} (pipe_down);
+    \draw[->] (pipe_down) -- (down_dot);
+    \draw[->] (down_dot) -- (output_file);
+\end{tikzpicture}
+\caption{To provide the read-once semantics of the standard input and the write-once semantics of the standard output the pipes are used. The communication process passes contents of the file to the input pipe that outputs to the solution's \texttt{stdin}. The solution's \texttt{stdout} is piped to the output file. To efficiently pass data between files and pipes in the communication process, the \texttt{splice} syscall is used.}
+\label{fig:noninteractive_problem_communication}
+\end{figure}
+
+\subsection{Conclusion}
+
+Apart from the above difficulties, the integration was rather easy. It required changing usage of the old sandbox to the new sandbox knobs. And a lot of code was simplified along the way.
+
+\section{Testing and validation}
+
+To test and validate the new sandbox a comprehensive set of unit tests was developed. Tests check that namespaces are used appropriately, the interface is implemented correctly, the limits are enforced, runtime statistics are provided and are correct, no file descriptor leaks to the traced process, etc. Error reporting was also tested e.g. that unexpected supervisor death is reported, the supervisor terminates as soon as the socket connection with the client becomes broken etc. These tests ensured no regressions during the development and in the end eased the development process.
+
+\section{Challenges faced}
+
+There were many challenges during the development of the sandbox. First was to understand the semantics of the kernel's interfaces i.e. namespaces, cgroups and capabilities, and nuances in every one of them. One of the great achievements was to desist from using \texttt{ptrace} and all its complexity, while controlling a group of processes. This reduced the overhead and simplified things a lot. It was possible thanks to the Linux namespaces and cgroups.
+
+Another challenge was to orchestrate everything to work together: resource limits, file descriptors, communication between processes, setting up namespaces and cgroups, dropping capabilities etc. It all has to be done in the right order and was often unobvious how to do it right.
+
+The hardest of all was to debug very obscure errors happening during setup of the namespaces and cgroups. Often configuration failed with \texttt{EPERM} or \texttt{EINVAL} and it required figuring out what was wrong with just such vague information. E.g. mounting cgroup2 file system is not allowed without unsharing cgroup namespace first. It also requires unsharing mount namespace and user namespace, but this is completely reasonable. Below are two examples of the hard to debug errors and why they happened.
+
+\subsection{\texttt{execveat} returns \texttt{EINVAL}}
+
+Executing a dynamically linked executable may fail with an error \texttt{EINVAL}. The executable needs the dynamic linker, so one reason of the error is the missing dynamic linker in the new root file system, on x86\_64 it is at \texttt{/lib64/ld-linux-x86-64.so.2}. Another reason may be a missing shared library that usually resides in the directory \texttt{/usr/lib/}. It is important to bind mount all of these paths during creation of the root file system for the dynamic executables to work.
+
+\subsection{\texttt{execveat} returns \texttt{ENOENT}}
+
+Executing a file may fail with \texttt{ENOENT}, even though the file exists. This may happen because the file is a symbolic link and the destination does not exist. Or if the symbolic link is recursive (refers to a symbolic link) and one of the intermediate files is non-existent in the new root file system. One of the solutions is to bind mount the executable without \texttt{AT\_SYMLINK\_NOFOLLOW}.
+
+\section{Conclusion}
+
+Despite challenges and complexity the sandbox was implemented and tested successfully. The usage of linux namespaces provides isolation while cgroups and prlimits limit the resources. The sandbox is versatile enough to be used both as a sandbox for running a solution as well as for running the compiler. The goal of optimizing the implementation for short-running programs was achieved with several optimizations.
+
 \chapter{Performance Evaluation}\label{chapter:performance}
 
 \chapter{Use Cases and Applications}\label{chapter:use_cases}
 
-\chapter{Integration with Online Judge}\label{chapter:integration}
-
 \chapter{Future work and Opportunities}\label{chapter:future_work}
+
+% Rust frontend.
+
+% Setting CPU affinity could reduce variability of subsequent runs \cite{merry2010performance} -- checking it.
 
 \chapter{Conclusion}\label{chapter:conclusion}
 
