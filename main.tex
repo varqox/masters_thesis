@@ -570,35 +570,34 @@ Client-server architecture allows time-performance optimizations. Furthermore, i
 
 \chapter{Implementation}\label{chapter:implementation}
 
-The project is written in C++, as it is a low-overhead, low-level language, but more convenient than C. Git is used as a Version Control System to track incremental implementation. Invaluable tool used during development was \texttt{strace} \cite{strace} that allowed easy inspection of system calls and their return value.
+The project is written in C++, as it is a low-overhead, low-level language, but more convenient than C. Git is used as a Version Control System to track incremental implementation. Invaluable tool used during development was \texttt{strace} \cite{strace}. It allowed easy inspection of system calls and their return value without any modification to the source code.
 
 \section{Interface}
 
 The client has to spawn the sandbox server --- the supervisor process. It then operates on the connection handle, through which it has access to requesting secure execution of programs.
 
-Sending request returns a request handle object that can be used to obtain result of the execution, cancel execution or kill the tracee processes. Canceling execution is useful in case of errors in the client, where result of the execution as well as the execution itself is no longer needed. Tracee processes if they are executing are immediately killed and the result is discarded. Canceling an already finished request discards the result. Canceling the request before the server started handling it causes it to be skipped. Killing an already finished request is no-op. Killing the request before the server started handling it causes tracee to be immediately killed after \texttt{execveat}.
+Sending request returns a request handle object that can be used to obtain result of the execution, cancel execution or kill the tracee processes. Canceling execution is useful in case of errors in the client, where the result of the execution as well as the execution itself are no longer needed. Tracee processes, if they are executing are immediately killed and the result is discarded. Canceling an already finished request discards the result. Canceling the request before the server started handling it causes it to be skipped. Killing an already finished request is no-op. Killing the request before the server started handling it causes tracee to be immediately killed after the \texttt{execveat}.
 
-The client can then await result of the request using the request handle. The result can either be an error with textual description. This error is not fatal to the supervisor process i.e. new requests can be sent. The result consist of the exit's code and status, and runtime statistics:
+The client can then await the result of the request using the request handle. The result can either be an error with a textual description. This error is not fatal to the supervisor process i.e. new requests can be sent. The result consist of the exit's code and status, and runtime statistics:
 \begin{itemize}
     \item real time,
     \item CPU user and CPU system time,
     \item peak tracee cgroup memory usage.
 \end{itemize}
-
 Each request has a set of accompanying options:
 \begin{itemize}
-    \item Optional \texttt{stdin}, \texttt{stdout}, and \texttt{stderr} file descriptors. If option is specified empty, \texttt{/dev/null} is opened as the file descriptor.
-    \item Environment as array view of string views.
+    \item Optional \texttt{stdin}, \texttt{stdout}, and \texttt{stderr} file descriptors. If optional is specified as empty, \texttt{/dev/null} is opened as the file descriptor.
+    \item Environment as an array view of string views.
     \item Linux namespace configuration:
         \begin{itemize}
-            \item user ID mapping,
+            \item user ID and group ID mapping,
             \item mounts and new root mount,
         \end{itemize}
     \item Cgroup resource limits: process and thread limit, memory limit, CPU maximum bandwidth.
     \item \texttt{prlimit} hard limits.
     \item Real time limit.
     \item CPU time limit.
-    \item Seccomp BPF filter as a file descriptor. The decision to pass it as file descriptor is that it lowers the overhead of reusing the same filter multiple times --- a common scenario in a judge system. Only the file descriptor needs to be send with each request instead of the whole BPF filter contents. This allows the filter to be compiled once and passed for multiple requests with minimal overhead and simple API. An alternative is to extend API to save seccomp filters but it was considered unnecessary given the how small is the overhead of passing a single file descriptor.
+    \item Seccomp BPF filter as a file descriptor. The decision to pass it as a file descriptor is that it lowers the overhead of reusing the same filter multiple times --- a common scenario in a judge system. Only the file descriptor needs to be send with each request instead of the whole BPF filter contents. This allows the filter to be compiled once and passed for multiple requests with minimal overhead and simplifies the API. An alternative is to extend the API to save seccomp filters but it was considered unnecessary given how small is the overhead of passing a single file descriptor.
 \end{itemize}
 
 \section{Time limits}
@@ -607,74 +606,68 @@ The PID 1 process controls the time limits. The tracee process, just before \tex
 
 \subsection{Real time limit}
 
-After saving the current real time the tracee process signals the PID 1 process with \texttt{SIGUSR2}. The PID 1 process reads the saved real time and sets up a POSIX timer to expire at the moment of saved time + real time limit. Upon the timer expiration, \texttt{SIGUSR1} is sent by the kernel to the PID 1 process and it terminates all tracee processes by writing 1 to \texttt{cgroup.kill} file of the tracee cgroup.
+After saving the current real time the tracee process signals the PID 1 process with \texttt{SIGUSR2}. The PID 1 process reads the saved real time and sets up a POSIX timer to expire at the moment of saved time + real time limit. Upon the timer expiration, \texttt{SIGUSR1} is sent by the kernel to the PID 1 process and it terminates all tracee processes by writing 1 to the \texttt{cgroup.kill} file of the tracee cgroup.
 
 \subsection{CPU time limit}
 
 In case the tracee is not restricted to one process, the setup is analogous to real time except that there is no CPU timer for a cgroup of processes. Instead we calculate minimal period of time in which the CPU time limit could expire as follows: $\frac{\text{remaining cpu time}}{\text{max parallelism}}$, where max parallelism equals: $\min(\text{available threads}, \text{\texttt{process\_num\_limit}}, \text{\texttt{cpu\_max\_bandwidth} in threads})$. Upon the timer expiration the remaining cpu time is recalculated and the timer is rescheduled if the remaining cpu time is greater than 0. Timer expiration is signaled by the kernel as signal \texttt{SIGXCPU}. To prevent polling, the minimal timer expiration period is capped to have minimum value of 1ms --- this gives at most 1000 checks per second.
 
-In case the tracee is restricted to one process, the setup is different. After saving the current CPU time the tracee process signals the PID 1 process through a pipe. A signal cannot be used because \texttt{timer\_create} syscall and \texttt{clock\_getcpuclockid} library function are not marked async-signal-safe --- they are not specified to be safe to call inside a signal handler. An \texttt{eventfd} cannot be used either, because if tracee dies before writing the \texttt{eventfd}, the PID 1 process will wait indefinitely on the \texttt{read} syscall. With pipe \texttt{read} returns 0 when the other end becomes closed. With limit to one process we use the CPU timer of the tracee process and set up a timer to expire when the tracee exceeds the CPU time limit.
+In case the tracee is restricted to one process, the setup is different. After saving the current CPU time the tracee process signals the PID 1 process through a pipe. A signal cannot be used because \texttt{timer\_create} syscall and \texttt{clock\_getcpuclockid} library function are not marked async-signal-safe --- they are not specified to be safe to call inside a signal handler. An \texttt{eventfd} cannot be used either, because if tracee dies before writing to the \texttt{eventfd}, the PID 1 process will wait indefinitely on the \texttt{read} syscall. With a pipe, \texttt{read} syscall returns 0 when the other end becomes closed. With the limit of one process we use the CPU timer of the tracee process and set up a timer to expire when the tracee exceeds the CPU time limit.
 
-In both cases, when the CPU time limit is exceeded, the PID 1 process and it terminates all tracee processes by writing 1 to \texttt{cgroup.kill} file of the tracee cgroup.
+In both cases, when the CPU time limit is exceeded, the PID 1 process is signaled about it and it terminates all tracee processes by writing 1 to \texttt{cgroup.kill} file of the tracee cgroup.
 
 \section{Runtime statistics}
 
-After the main tracee process (the first spawned) exists, the init process saves the current real time and the exit status in the shared memory unless the tracee set an error and exists. The kernel kills all remaining tracee processes (because the PID namespace's init process died). After the PID 1 process exists, the supervisor process reads the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}). It checks if there is an either tracee or PID 1 error. If there is one, it becomes the result of the request. If there is none, the supervisor process calculates:
+After the main tracee process (the first spawned process) exists, the PID 1 process saves the current real time and the exit status in the shared memory, unless the tracee set an error, and exists. The kernel kills all remaining tracee processes (because the PID namespace's init process died). After the PID 1 process exists, the supervisor process reads the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}). It checks if there is an error of either tracee or PID 1 process. If there is one, it becomes the result of the request. If there is none, the supervisor process calculates:
 \begin{itemize}
-    \item real time using formula: $\text{time of tracee death} - \text{saved execveat real time}$,
-    \item CPU time using formula: $\text{CPU time read from \texttt{cpu.stat} file} - \text{saved execveat CPU time}$,
+    \item real time using formula: $\text{time of tracee death} - \text{saved \texttt{execveat} real time}$,
+    \item CPU time using formula: $\text{CPU time read from \texttt{cpu.stat} file} - \text{saved \texttt{execveat} CPU time}$,
     \item Peak memory usage by reading \texttt{memory.peak} tracee cgroup file.
 \end{itemize}
 
 \section{Error handling}
 
-Errors in supervisor process are considered fatal and are reported by writing to \texttt{stderr}. After writing errors, the supervisor process exists immediately. When the client tries to read the request result, the read will fail with \texttt{read} returning unexpected value 0. The client then ensures the supervisor process is dead and tries to read the error the supervisor wrote. If the client finds one it throws is, otherwise it throws \texttt{read} error.
+Errors in the supervisor process are considered fatal and are reported by writing to \texttt{stderr}. After writing errors, the supervisor process exists immediately. When the client tries to read the request result, the read will fail with \texttt{read} returning unexpected value 0. The client then ensures the supervisor process is dead (in case the communication failed) and tries to read the error the supervisor wrote. If the client finds one it throws it, otherwise it throws the \texttt{read} error.
 
 The PID 1 process and tracee process write error to the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}) and exit immediately. The supervisor process reports these errors as a request result.
 
 \section{Request sending and receiving}
 
-The request is sent via UNIX domain socket (see Figure \ref{fig:server_waits_for_request}). The request is serialized to custom binary format and sent: constant-length header with file descriptors and the body. On the other end (supervisor process) the header with file descriptors and later the request body. Then the request is deserialized and handled.
+The request is sent via UNIX domain socket (see Figure \ref{fig:server_waits_for_request}). The request is serialized to a custom binary format and sent: constant-length header with file descriptors and the body. On the other end (supervisor process) the header with file descriptors and later the request body is received. Then the request is deserialized and handled.
 
 \section{File descriptors}
 
-The sandbox server closes all file descriptors except the UNIX socket fd and opens \texttt{/dev/null} as \texttt{stdin}, \texttt{stdout}, and \texttt{stderr}. This allows no modification of the standard file descriptors if the request does not change sets them.
+The sandbox server closes all file descriptors except the UNIX socket fd and opens \texttt{/dev/null} as \texttt{stdin}, \texttt{stdout}, and \texttt{stderr}. This allows no modification of the standard file descriptors if the request does not sets them.
 
 All file descriptors are opened with \texttt{O\_CLOEXEC} flag so that they will not leak to the executed process. A unit test to check if any file descriptor leaks to the sandboxed program is in the test suite.
 
-The PID 1 process inherits all request standard file descriptors and passes them to the tracee process. It has to close them after spawning the tracee process. Consider a pipe of which one end is passed as a \texttt{stdin} to the sandboxed program. A pipe is broken if all file descriptors of one end become closed. If the PID 1 process did not close the standard file descriptors of the tracee, the pipe could not become broken until the PID 1 process dies. This changes the semantics of the pipe if the program is run inside the sandbox and is undesirable. Moreover, for hardening purposes the PID 1 process closes all unnecessary file descriptors after spawning tracee --- in case, the tracee somehow takes control of the PID 1 process.
+The PID 1 process inherits all request standard file descriptors and passes them to the tracee process. It has to close them after spawning the tracee process. To see why, let's consider a pipe of which one end is passed as a \texttt{stdin} to the sandboxed program. A pipe is broken if all file descriptors of one end become closed. If the PID 1 process did not close the standard file descriptors of the tracee, the pipe could not become broken until the PID 1 process dies. This changes the semantics of the pipe if the program is run inside the sandbox and is undesirable. Moreover, for hardening purposes the PID 1 process closes all unnecessary file descriptors after spawning tracee --- in case, the tracee somehow takes control of the PID 1 process.
 
-\section{Canceling request}
+\section{Canceling the request}
 
-The response to the request is passed via pipe that is provided alongside the request. If the pipe becomes broken i.e. the client closes the read end of the pipe, the request is considered cancelled and is immediately discarded if currently handled.
+The response to the request is passed via pipe that is provided alongside the request. If the pipe becomes broken i.e. the client closes the read end of the pipe, the request is considered cancelled and is immediately discarded if currently handled and omitted otherwise.
 
-\section{Killing request}
+\section{Killing the request}
 
-Alongside request is send an \texttt{eventfd} file descriptor. The supervisor process monitors this file descriptor and if it becomes readable i.e. the client writes a value to it, the tracee is killed immediately. To avoid false-positive errors, if the request is killed before \texttt{execveat} syscall executing the requested program, killing of the tracee is delayed to the \texttt{execve} moment.
+Alongside request is send an \texttt{eventfd} file descriptor. The supervisor process monitors this file descriptor and if it becomes readable i.e. the client writes a value to it, the tracee is killed immediately. To avoid false-positive errors (the tracee process is killed unexpectedly), if the request is killed before \texttt{execveat} syscall executing the requested program, killing of the tracee is delayed to the \texttt{execve} moment.
 
 \section{Sandbox server upon client death}
 
-The supervisor process monitors the UNIX socket through which the requests flow. If the other end becomes read and write closed, the supervisor recognises it as a death of the client process and dies immediately. The PID 1 process is configured to die upon the supervisor process death, and the kernel kills all tracee processes when the PID 1 process dies. Therefore, all server processes die.
+The supervisor process monitors the UNIX socket through which the requests flow in. If the other end becomes read and write closed, the supervisor recognises it as a death of the client process and dies immediately. The PID 1 process is configured to die upon the supervisor process death, and the kernel kills all tracee processes when the PID 1 process dies. Therefore, all server processes die.
 
 \section{PID 1 process upon supervisor death}
 
-The PID 1 process configures kernel to kill it upon the supervisor process death. This is done using \texttt{prctl}'s option \texttt{PR\_SET\_PDEATHSIG}. However, if the supervisor dies before the kernel configures the PID 1 process to die, the PID 1 process will still be alive and waste resources. To solve this one could check if the \texttt{getppid()} returns the expected PID of the supervisor process. However, this will not work, since the PID 1 process is in a new PID namespace, and \texttt{getppid()} will always return 0. A reliable solution is to pass pidfd file descriptor of the supervisor process and check if the supervisor process is dead by checking if the pidfd file descriptor became readable. This way, upon supervisor process death, the PID 1 process is either killed by the kernel or the PID 1 process detects the supervisor process death and kills itself.
+The PID 1 process configures kernel to kill it upon the supervisor process death. This is done using \texttt{prctl}'s option \texttt{PR\_SET\_PDEATHSIG}. However, if the supervisor dies before the kernel configures the PID 1 process to die, the PID 1 process will still be alive and waste the resources. To solve this, one could check if the \texttt{getppid()} returns the expected PID of the supervisor process. However, this will not work, since the PID 1 process is in a new PID namespace, and \texttt{getppid()} will always return 0. A reliable solution is to pass a pidfd file descriptor of the supervisor process and check if the supervisor process is dead by checking if the pidfd file descriptor became readable. This way, upon supervisor process death, the PID 1 process is either killed by the kernel or it detects the death of the supervisor process and kills itself.
 
 \section{Signals}
 
-\subsection{\texttt{SIGPIPE} in the supervisor process}
-
-Sending response to the client may generate \texttt{SIGPIPE} signal for the supervisor process if the client cancels the request approximately in the same moment. We have to ignore this signal in the supervisor process. However, this cannot be done using \texttt{SIG\_IGN} because this signal disposition is not reset upon \texttt{execveat} system call. We chose to install an empty signal handler for \texttt{SIGPIPE} so that the disposition of the signal handler is reset upon \texttt{execveat} in the tracee process.
-
-\subsection{Undefined Behavior Sanitizer}
-
-The code of the sandbox may be compiled with the Undefined Behavior Sanitizer (UBSan) support enabled. UBSan install signal handlers for \texttt{SIGBUS}, \texttt{SIGFPE} and \texttt{SIGSEGV} signals. This is problematic, because tracee could send these signals to the PID 1 process. For the init process in the PID namespace, the kernel only allows sending signals for which the init process (here the PID 1 process) has installed the signal handlers \cite{man_pid_namespaces}. Therefore the PID 1 process resets signal dispositions of these handlers if the UBSan is used.
+Signals are another way the processes can communicate with each other. They have their nuances and have to be isolated as well.
 
 \subsection{Tracee signals}
 
-Tracee can signals only to the visible processes and those are limited by the PID namespace. However, it can also send signals to its process group that can span multiple PID namespaces. See Figure \ref{fig:pgid_and_pid_namespace}. Therefore it is necessary to set new process group for the tracee processes. Furthermore, as a hardening, a new process group is set for the PID 1 process, in case the tracee takes control of it.
+Tracee can signal only to the visible processes and those are limited by the PID namespace. However, it can also send signals to its process group that can span multiple PID namespaces. See Figure \ref{fig:pgid_and_pid_namespace}. Therefore it is necessary to set new process group for the tracee processes. Furthermore, as a hardening, a new process group is set for the PID 1 process as well, in case the tracee takes control of it.
 
-However, it is better to also set new session id using \texttt{setsid} syscall instead of just process group id to avoid vulnerabilities connected to the current controlling terminal \cite{bubblewrap_cve}.
+However, it is better to also set a new session id using \texttt{setsid} syscall instead of just the process group id to avoid vulnerabilities connected to the current controlling terminal \cite{bubblewrap_cve}.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
@@ -707,13 +700,21 @@ However, it is better to also set new session id using \texttt{setsid} syscall i
 \label{fig:pgid_and_pid_namespace}
 \end{figure}
 
+\subsection{\texttt{SIGPIPE} in the supervisor process}
+
+Sending response to the client may generate \texttt{SIGPIPE} signal for the supervisor process if the client cancels the request approximately in the same moment. We have to ignore this signal in the supervisor process. However, this cannot be done using \texttt{SIG\_IGN} because this signal disposition is not reset upon \texttt{execveat} system call and it had to be reset manually. As an alternative, it was chosen to install an empty signal handler for \texttt{SIGPIPE} so that the disposition of the signal handler is reset upon \texttt{execveat} in the tracee process automatically by the kernel.
+
+\subsection{Undefined Behavior Sanitizer}
+
+The code of the sandbox may be compiled with the Undefined Behavior Sanitizer (UBSan) enabled. UBSan installs signal handlers for \texttt{SIGBUS}, \texttt{SIGFPE} and \texttt{SIGSEGV} signals. This is problematic, because tracee could send these signals to the PID 1 process. For the init process in the PID namespace, the kernel only allows sending signals for which the init process (here the PID 1 process) has installed the signal handlers \cite{man_pid_namespaces}. Therefore the PID 1 process resets signal dispositions of these handlers if the UBSan is used to prevent tracee from sending these signals to the PID 1 process.
+
 \section{Running as superuser}
 
-The sandbox is not safe to be run by the superuser. If this is needed it has to be change to some unprivileged user. This is because many global system resources are still available, even after dropping the capabilities, e.g. rising privileges. The check is done in the supervisor process at startup. To make it user namespace-proof it is checked if \texttt{/dev/null} is the null device and if effective user id of the process equals owner of the file.
+The sandbox is not safe to be run by the superuser. If this is needed, then you have to switch to some unprivileged user first. This is because many global system resources are still available, even after dropping the capabilities, e.g. rising privileges works. The check is done in the supervisor process at startup. To make it user namespace-proof it is checked if \texttt{/dev/null} is the null device and if the effective user id of the process equals the owner of the \texttt{/dev/null} file.
 
 \section{Performance optimizations}
 
-What could be done is done in the supervisor process at startup, before handling requests e.g. creating cgroups, entering network namespace, opening \texttt{/dev/null} as standard file descriptors. Sharing this work between requests ensures minimal overhead of handling the request i.e. it increases throughput (handled requests per second). Some of the optimizations are described in this section.
+Everything that can be done is done in the supervisor process at startup, before handling requests e.g. creating cgroups, entering the network namespace, opening \texttt{/dev/null} as standard file descriptors. Sharing this work between requests ensures minimal overhead of handling the request i.e. it increases throughput (handled requests per second). Some of the optimizations are described in this section.
 
 \subsection{Seccomp filter of the PID 1 process}
 
@@ -721,7 +722,7 @@ The seccomp filter of the PID 1 process is created and compiled in the superviso
 
 \subsection{Seccomp filter as file descriptor}
 
-The seccomp filter in a request is sent as a file descriptor. This avoids unnecessary copies of the seccomp filter contents in case the filter is large. Moreover, this is more evident if the same filter is used for subsequent requests.
+The seccomp filter in a request is sent as a file descriptor. This avoids unnecessary copies of the seccomp filter contents in case the filter is large. Moreover, the gain is more evident if the same filter is used for subsequent requests.
 
 \subsection{Unsharing network, ipc, uts and time namespace}
 
