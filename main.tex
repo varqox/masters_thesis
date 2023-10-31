@@ -570,15 +570,15 @@ Client-server architecture allows time-performance optimizations. Furthermore, i
 
 \chapter{Implementation}\label{chapter:implementation}
 
-The project is written in C++, as it is a low-overhead, low-level language, but more convenient than C. Git is used as a Version Control System to track incremental implementation. Invaluable tool used during development was \texttt{strace} \cite{strace}. It allowed easy inspection of system calls and their return value without any modification to the source code.
+The project is written in C++, as it is a low-overhead, low-level language, but more convenient than C. Git is used as a Version Control System to track incremental implementation. Invaluable tool used during development was \texttt{strace} \cite{strace}. It allowed easy inspection of system calls and their return values without any modification to the source code.
 
 \section{Interface}
 
-The client has to spawn the sandbox server --- the supervisor process. It then operates on the connection handle, through which it has access to requesting secure execution of programs.
+The client has to spawn the sandbox server --- the supervisor process. It then operates on the connection handle. Using the connection handle, the client can send requests to execute programs in the sandbox.
 
-Sending request returns a request handle object that can be used to obtain result of the execution, cancel execution or kill the tracee processes. Canceling execution is useful in case of errors in the client, where the result of the execution as well as the execution itself are no longer needed. Tracee processes, if they are executing are immediately killed and the result is discarded. Canceling an already finished request discards the result. Canceling the request before the server started handling it causes it to be skipped. Killing an already finished request is no-op. Killing the request before the server started handling it causes tracee to be immediately killed after the \texttt{execveat}.
+After sending a request, a request handle object is constructed. It can be used to obtain result of the execution, cancel execution or kill the tracee processes. Canceling execution is useful in case of errors in the client, where the result of the execution as well as the execution itself are no longer needed. Upon cancellation of the request, tracee process are immediately killed. Result of running the request is discarded. Canceling an already finished request discards the result. Canceling the request before the server started handling it causes it to be skipped. Killing an already finished request is no-op. Killing the request before the server started handling it causes tracee to be immediately killed after the \texttt{execveat}.
 
-The client can then await the result of the request using the request handle. The result can either be an error with a textual description. This error is not fatal to the supervisor process i.e. new requests can be sent. The result consist of the exit's code and status, and runtime statistics:
+The client can then await the result of the request using the request handle. The result can either be a successful result or an error with a textual description. This error is not fatal to the supervisor process i.e. new requests can be sent. The successful result consists of the exit code and status, and runtime statistics:
 \begin{itemize}
     \item real time,
     \item CPU user and CPU system time,
@@ -597,16 +597,16 @@ Each request has a set of accompanying options:
     \item \texttt{prlimit} hard limits.
     \item Real time limit.
     \item CPU time limit.
-    \item Seccomp BPF filter as a file descriptor. The decision to pass it as a file descriptor is that it lowers the overhead of reusing the same filter multiple times --- a common scenario in a judge system. Only the file descriptor needs to be send with each request instead of the whole BPF filter contents. This allows the filter to be compiled once and passed for multiple requests with minimal overhead and simplifies the API. An alternative is to extend the API to save seccomp filters but it was considered unnecessary given how small is the overhead of passing a single file descriptor.
+    \item Seccomp BPF filter as a file descriptor. The decision to pass it as a file descriptor is that it lowers the overhead of repeatedly using the same filter --- a common scenario in a judge system. Only the file descriptor needs to be sent with each request instead of the whole BPF filter content. This allows the filter to be compiled once and passed for multiple requests with minimal overhead. An alternative is to extend the API to save seccomp filters but it was considered unnecessary given how small is the overhead of passing a single file descriptor.
 \end{itemize}
 
 \section{Time limits}
 
-The PID 1 process controls the time limits. The tracee process, just before \texttt{execveat} saves current real time from \texttt{CLOCK\_MONOTONIC\_RAW} and CPU time from \texttt{cpu.stat} tracee cgroup file to the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}). The problem with \texttt{cpu.stat} file is that it is updated infrequently and just reading it in the young tracee process often gives 0 as the consumed CPU time of the tracee. Fortunately, executing \texttt{sched\_yield()} system call forces recalculation of the file and the values are no longer 0. This is why this syscall is required as allowed in the seccomp BPF filter.
+The PID 1 process controls the time limits. The tracee process, just before \texttt{execveat} saves current real time from \texttt{CLOCK\_MONOTONIC\_RAW} and CPU time from \texttt{cpu.stat} tracee cgroup file to the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}). The problem with \texttt{cpu.stat} file is that it is updated infrequently. For a young tracee process, this file often reports consumed CPU time equal to 0 microseconds instead of a few hundred microseconds. Fortunately, executing \texttt{sched\_yield()} system call forces recalculation of the file and the values are no longer 0. This is why this syscall is required as allowed in the seccomp BPF filter.
 
 \subsection{Real time limit}
 
-After saving the current real time the tracee process signals the PID 1 process with \texttt{SIGUSR2}. The PID 1 process reads the saved real time and sets up a POSIX timer to expire at the moment of saved time + real time limit. Upon the timer expiration, \texttt{SIGUSR1} is sent by the kernel to the PID 1 process and it terminates all tracee processes by writing 1 to the \texttt{cgroup.kill} file of the tracee cgroup.
+After saving the current real time the tracee process signals the PID 1 process with \texttt{SIGUSR2}. The PID 1 process reads the saved real time and sets up a POSIX timer to expire at the moment of saved time + real time limit. When the timer expires, \texttt{SIGUSR1} is sent by the kernel to the PID 1 process and it terminates all tracee processes by writing 1 to the \texttt{cgroup.kill} file of the tracee cgroup.
 
 \subsection{CPU time limit}
 
@@ -618,7 +618,7 @@ In both cases, when the CPU time limit is exceeded, the PID 1 process is signale
 
 \section{Runtime statistics}
 
-After the main tracee process (the first spawned process) exists, the PID 1 process saves the current real time and the exit status in the shared memory, unless the tracee set an error, and exists. The kernel kills all remaining tracee processes (because the PID namespace's init process died). After the PID 1 process exists, the supervisor process reads the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}). It checks if there is an error of either tracee or PID 1 process. If there is one, it becomes the result of the request. If there is none, the supervisor process calculates:
+After the main tracee process (the first spawned process) exits, the PID 1 process saves the current real time and the exit status in the shared memory, unless the tracee set an error, and exits. The kernel kills all remaining tracee processes (because the PID namespace's init process died). After the PID 1 process exits, the supervisor process reads the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}). It checks if there is an error of either tracee or PID 1 process. If there is one, it becomes the result of the request. If there is none, the supervisor process calculates:
 \begin{itemize}
     \item real time using formula: $\text{time of tracee death} - \text{saved \texttt{execveat} real time}$,
     \item CPU time using formula: $\text{CPU time read from \texttt{cpu.stat} file} - \text{saved \texttt{execveat} CPU time}$,
@@ -627,17 +627,17 @@ After the main tracee process (the first spawned process) exists, the PID 1 proc
 
 \section{Error handling}
 
-Errors in the supervisor process are considered fatal and are reported by writing to \texttt{stderr}. After writing errors, the supervisor process exists immediately. When the client tries to read the request result, the read will fail with \texttt{read} returning unexpected value 0. The client then ensures the supervisor process is dead (in case the communication failed) and tries to read the error the supervisor wrote. If the client finds one it throws it, otherwise it throws the \texttt{read} error.
+Errors in the supervisor process are considered fatal and are reported by writing to \texttt{stderr}. After writing errors, the supervisor process exits immediately. When the client tries to read the request result, the read will fail with \texttt{read} returning unexpected value 0. The client then ensures the supervisor process is dead (in case the communication failed) and tries to read the error the supervisor wrote. If the client finds one it throws exception with this error, otherwise it throws the exception with the \texttt{read} error.
 
 The PID 1 process and tracee process write error to the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}) and exit immediately. The supervisor process reports these errors as a request result.
 
 \section{Request sending and receiving}
 
-The request is sent via UNIX domain socket (see Figure \ref{fig:server_waits_for_request}). The request is serialized to a custom binary format and sent: constant-length header with file descriptors and the body. On the other end (supervisor process) the header with file descriptors and later the request body is received. Then the request is deserialized and handled.
+The request is sent via UNIX domain socket (see Figure \ref{fig:server_waits_for_request}). The request consists of a constant-length with file descriptors and a variable length body. The request header contains only the length of the request body. The request body contains all parameters of the request that are serialized to a custom binary format.
 
 \section{File descriptors}
 
-The sandbox server closes all file descriptors except the UNIX socket fd and opens \texttt{/dev/null} as \texttt{stdin}, \texttt{stdout}, and \texttt{stderr}. This allows no modification of the standard file descriptors if the request does not sets them.
+The sandbox server closes all file descriptors except the UNIX socket fd and opens \texttt{/dev/null} as \texttt{stdin}, \texttt{stdout}, and \texttt{stderr}. This is a small optimization, in case the request does not specify a standard file descriptor. For instance, if the request is to execute a program without \texttt{stdin}, the sandbox server has to set up the \texttt{stdin} of the tracee process to be \texttt{/dev/null} opened for reading. However, the tracee process inherits the file descriptors of the PID 1 process that inherits the file descriptors of the supervisor process. The supervisor process has already opened \texttt{/dev/null} as the \texttt{stdin} file descriptor. Therefore no action is needed in the PID 1 process and the tracee process for \texttt{stdin} of the tracee process to be \texttt{/dev/null} opened for reading. The same principle applies to \texttt{stdout} and \texttt{stderr} file descriptors.
 
 All file descriptors are opened with \texttt{O\_CLOEXEC} flag so that they will not leak to the executed process. A unit test to check if any file descriptor leaks to the sandboxed program is in the test suite.
 
@@ -665,7 +665,7 @@ Signals are another way the processes can communicate with each other. They have
 
 \subsection{Tracee signals}
 
-Tracee can signal only to the visible processes and those are limited by the PID namespace. However, it can also send signals to its process group that can span multiple PID namespaces. See Figure \ref{fig:pgid_and_pid_namespace}. Therefore it is necessary to set new process group for the tracee processes. Furthermore, as a hardening, a new process group is set for the PID 1 process as well, in case the tracee takes control of it.
+Tracee can signal only to the visible processes and those are limited by the PID namespace. However, it can also send signals to its process group that can span multiple PID namespaces. Figure \ref{fig:pgid_and_pid_namespace} illustrates this situation. Therefore it is necessary to set new process group for the tracee processes. Furthermore, as a hardening, a new process group is set for the PID 1 process as well, in case the tracee takes control of it.
 
 However, it is better to also set a new session id using \texttt{setsid} syscall instead of just the process group id to avoid vulnerabilities connected to the current controlling terminal \cite{bubblewrap_cve}.
 
@@ -753,7 +753,7 @@ Bash and Python require no additional bind mounts.
 
 \subsection{Interactive problems}
 
-Interactive problems require the solution to communicate with the checker program i.e. the standard input of the solution is the standard output of the checker program and the standard output of the solution is the standard input of the checker program. Figure \ref{fig:intaractive_problem_communication_schema} illustrates this. To accomplish this we need two pipes, one for each communication channel. However, the judge needs to know which process died first to provide a reasonable verdict of checking the solution on the test.
+Interactive problems require the solution to communicate with the checker program i.e. the standard input of the solution is the standard output of the checker program and the standard output of the solution is the standard input of the checker program. Figure \ref{fig:intaractive_problem_communication_schema} illustrates this configuration. To accomplish this we need two pipes, one for each communication channel. However, the judge needs to know which process died first to provide a reasonable verdict of checking the solution on the test.
 
 To see why, lets consider the two examples. In the first one, the checker decides early that the solution answered wrong, it terminates with a message ''Wrong answer''. Then, the pipe closes and the solution may get terminated by \texttt{SIGPIPE} for trying to write to the closed pipe. If this happens, the solution's abnormal death is caused by the checker exiting early. In this situation verdict ''Wrong answer'' is the expected verdict. In the second example, an incorrect solution terminates early and abnormally. In this case, the pipe closes after solution's death and the checker sees the output of the solution as incomplete and decides ''Wrong answer''. However, in this example an expected verdict would be ''Runtime error'' because the solution's death caused checker to decide ''Wrong answer'', therefore solution's abnormal death takes precedence here. If we don't know who died first in such cases, we cannot reliably deduce the primary cause and therefore cannot decide what is more important, a solution's abnormal death or the checker's verdict.
 
@@ -772,7 +772,7 @@ To see why, lets consider the two examples. In the first one, the checker decide
 \label{fig:intaractive_problem_communication_schema}
 \end{figure}
 
-To solve this, one could monitor the ends of the two pipes and see which end closes first. This is possible with e.g. \texttt{poll} syscall. However, it is prone to a race condition because the process monitoring the ends of the pipes may be scheduled after the checker and the solution process and see them as if they died at the same moment. E.g. the solution process dies abnormally, then checker decides ''Wrong answer'' and exists and only then the \texttt{poll} syscall returns reporting all ends of the pipes as closed without the information which closed first. To avoid this race condition and decide reliably 4 pipes are needed and a process that glues both pairs of pipes together and detect which end is closed first. See Figure \ref{fig:interactive_problem_real_communication}. As long as, the third process holds open inner four ends of the pipe pairs, the solution and the checker will not see their \texttt{stdin} and \texttt{stdout} as broken and will not proceed (to terminate, either normally or not). This way we can reliably detect who dies first and give a correct verdict in the scenarios where one's death causes the other's death. To efficiently pass messages in the third process, the \texttt{splice} syscall is used.
+To solve this, one could monitor the ends of the two pipes and see which end closes first. This is possible with e.g. \texttt{poll} syscall. However, it is prone to a race condition because the process monitoring the ends of the pipes may be scheduled after the checker and the solution process and see them as if they died at the same moment. For example, the solution process dies abnormally, then checker decides ''Wrong answer'' and exits and only then the \texttt{poll} syscall returns reporting all ends of the pipes as closed without the information which closed first. To avoid this race condition and decide reliably 4 pipes are needed and a process that glues both pairs of pipes together and detects which end is closed first. Figure \ref{fig:interactive_problem_real_communication} illustrates this configuration. As long as, the third process holds open inner four ends of the pipe pairs, the solution and the checker will not see their \texttt{stdin} and \texttt{stdout} as broken and will not proceed (to terminate, either normally or not). This way we can reliably detect who dies first and give a correct verdict in the scenarios where one's death causes the other's death. To efficiently pass messages in the third process, the \texttt{splice} syscall is used.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
@@ -800,13 +800,13 @@ To solve this, one could monitor the ends of the two pipes and see which end clo
     \draw[->] (up_dot) -- (pipe_up_left);
     \draw[->] (pipe_up_left) -- node[left] {\texttt{stdin}} (solution);
 \end{tikzpicture}
-\caption{This is how communication between the solution and the checker is implemented. Two pairs of pipes are used to be able to detect which process dies first --- the solution or the checker. Because the communication process does not close its ends of the pipes first, it can detect which process died first without causing the second to die because of a broken pipe. To efficiently pass messages in the communication process, the \texttt{splice} syscall is used.}
+\caption{This is how communication between the solution and the checker is implemented. Two pairs of pipes are used. This allows detection which process dies first --- the solution or the checker. Because the communication process does not close its ends of the pipes first, it can detect which process died first without causing the second to die because of a broken pipe. To efficiently pass messages in the communication process, the \texttt{splice} syscall is used.}
 \label{fig:interactive_problem_real_communication}
 \end{figure}
 
 \subsection{Non-interactive problems}
 
-In the non-interactive problems, the semantics of the input is read-once and of the output is write-once. To achieve this without disallowing \texttt{dup}'ing, \texttt{close}'ing, \texttt{mmap}'ping, \texttt{pread}'ing etc. of the standard input and output file descriptors, we use pipes that are read-once and write-once. See Figure \ref{fig:noninteractive_problem_communication}. Input file is piped to \texttt{stdin} of the solution, and solution's output is piped to the output file. To efficiently pass messages between a pipe and a file the \texttt{splice} syscall is used.
+In the non-interactive problems, the semantics of the input is read-once and of the output is write-once. To achieve this without disallowing \texttt{dup}'ing, \texttt{close}'ing, \texttt{mmap}'ping, \texttt{pread}'ing etc. of the standard input and output file descriptors, we use pipes that are read-once and write-once. Input file is piped to \texttt{stdin} of the solution, and solution's output is piped to the output file. Figure \ref{fig:noninteractive_problem_communication} illustrates this configuration. To efficiently pass messages between a pipe and a file the \texttt{splice} syscall is used.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
@@ -837,7 +837,7 @@ In the non-interactive problems, the semantics of the input is read-once and of 
 
 \subsection{Conclusion}
 
-Apart from the above difficulties, the integration was rather easy. It required changing usage of the old sandbox to the new sandbox knobs. And a lot of code was simplified along the way.
+Apart from the above difficulties, the integration was rather easy. It required changing usage of the old sandbox to the new sandbox knobs. A lot of code was simplified along the way.
 
 \section{Testing and validation}
 
@@ -849,19 +849,19 @@ There were many challenges during the development of the sandbox. First was to u
 
 Another challenge was to orchestrate everything to work together: resource limits, file descriptors, communication between processes, setting up namespaces and cgroups, dropping capabilities etc. It all has to be done in the right order and was often unobvious how to do it right.
 
-The hardest of all was to debug very obscure errors happening during setup of the namespaces and cgroups. Often configuration failed with \texttt{EPERM} or \texttt{EINVAL} and it required figuring out what was wrong with just such vague information. E.g. mounting cgroup2 file system is not allowed without unsharing cgroup namespace first. It also requires unsharing mount namespace and user namespace, but this is completely reasonable. Below are two examples of the hard to debug errors and why they happened.
+The hardest of all was to debug very obscure errors happening during setup of the namespaces and cgroups. Often configuration failed with \texttt{EPERM} or \texttt{EINVAL} and it required figuring out what was wrong with just such vague information. For example, mounting cgroup2 file system is not allowed without unsharing cgroup namespace first. It also requires unsharing mount namespace and user namespace, but this is completely reasonable. In Sections \ref{execveat_returns_einval} and \ref{execveat_returns_enoent} two examples are shown of the hard to debug errors.
 
-\subsection{\texttt{execveat} returns \texttt{EINVAL}}
+\subsection{\texttt{execveat} returns \texttt{EINVAL}} \label{execveat_returns_einval}
 
 Executing a dynamically linked executable may fail with an error \texttt{EINVAL}. The executable needs the dynamic linker, so one reason of the error is the missing dynamic linker in the new root file system, on x86\_64 it is at \texttt{/lib64/ld-linux-x86-64.so.2}. Another reason may be a missing shared library that usually resides in the directory \texttt{/usr/lib/}. It is important to bind mount all of these paths during creation of the root file system for the dynamic executables to work.
 
-\subsection{\texttt{execveat} returns \texttt{ENOENT}}
+\subsection{\texttt{execveat} returns \texttt{ENOENT}} \label{execveat_returns_enoent}
 
-Executing a file may fail with \texttt{ENOENT}, even though the file exists. This may happen because the file is a symbolic link and the destination does not exist. Or if the symbolic link is recursive (refers to a symbolic link) and one of the intermediate files is non-existent in the new root file system. One of the solutions is to bind mount the executable without \texttt{AT\_SYMLINK\_NOFOLLOW}.
+Executing a file may fail with \texttt{ENOENT}, even though the file exists. This may happen because the file is a symbolic link and the destination does not exist, or if the symbolic link is recursive (refers to a symbolic link) and one of the intermediate files is non-existent in the new root file system. One of the solutions is to bind mount the executable without \texttt{AT\_SYMLINK\_NOFOLLOW}.
 
 \section{Conclusion}
 
-Despite challenges and complexity the sandbox was implemented and tested successfully. The usage of linux namespaces provides isolation while cgroups and prlimits limit the resources. The sandbox is versatile enough to be used both as a sandbox for running a solution as well as for running the compiler. The goal of optimizing the implementation for short-running programs was achieved with several optimizations.
+Despite challenges and complexity the sandbox was implemented and tested successfully. The usage of Linux namespaces provides isolation while cgroups and prlimits limit the resources. The sandbox is versatile enough to be used both as a sandbox for running a solution as well as for running the compiler. The goal of optimizing the implementation for short-running programs was achieved with several optimizations.
 
 \chapter{Performance Evaluation}\label{chapter:performance}
 
