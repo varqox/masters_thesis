@@ -155,7 +155,7 @@ Secure execution environments are commonplace these days, from containers and vi
 
 The features of Linux allow the creation of simple yet effective and efficient secure environments. They work at application runtime, so in most cases existing software does not need to be adapted to use them. This makes them easily applicable, and explains why their adoption is growing.
 
-In this thesis, the most important application of sandboxing are online judge systems. Online judge systems have beneficial role in programming education and competitive programming. They allow testing user-provided solution to a specific problem. The solution is run on a predefined test cases in order to check if it is valid. In such platforms isolating the compilation and running of the solution is essential to provide security and robustness of the platform itself.
+In this thesis, the most important application of sandboxing are online judge systems. Online judge systems have beneficial role in programming education and competitive programming. They allow testing user-provided solution to a specific problem. The solution is run on a predefined test cases in order to check if it is valid. In such platforms isolating the compilation and running of the tested program is essential to provide security and robustness of the platform itself.
 
 Historically, isolation techniques evolved together with the online judge platforms. The most primitive (yet insecure) was usage of \texttt{chroot(2)} \cite{prevelakis2001sandboxing} to restrict access to part of the filesystem. To increase isolation virtual machines were used \cite{5635141}. Later, containerization became a new way to provide isolation \cite{marevs2012new, SPACEK20151665}.
 
@@ -165,17 +165,17 @@ Moreover, a versatile sandbox has applications outside online judging platforms.
 
 \section{Goal of the thesis}
 
-The goal of the thesis is to design, implement and integrate a new sandbox for the Sim project \cite{sim_project}. The Sim project is an online platform for preparing people for and carrying out algorithmic contests. The project started in 2012 and is developed by me since the beginning. It is used at the XIII High School in Szczecin and programming camps to teach young people programming and algorithms. It has an online judge with a sandbox specially developed for this use case. Over the years the sandbox became a limitation. It only allows running a single-threaded statically linked executable of programs written in C, C++ or Pascal. The new sandbox will allow supporting more programming languages and improve security of the solution compilation stage.
+The goal of the thesis is to design, implement and integrate a new sandbox for the Sim project \cite{sim_project}. The Sim project is an online platform for preparing people for and carrying out algorithmic contests. The project started in 2012 and is developed by me since the beginning. It is used at the XIII High School in Szczecin and programming camps to teach young people programming and algorithms. It has an online judge with a sandbox specially developed for this use case. Over the years the sandbox became a limitation. It only allows running a single-threaded statically linked executable of programs written in C, C++ or Pascal. The new sandbox will allow supporting more programming languages and improve security of the tested program compilation stage.
 
 \subsection{Requirements}
 
-The new sandbox needs to be optimized for running short-running programs as well as have minimal runtime overhead. Most of the test cases the solution is run on are small and solution completes them in less than 10ms. The goal is to allow hundreds of such sort-running runs per second, hence optimizing for short-running programs is important. However, minimizing overhead of the sandbox during the run is also important i.e. if the program runs X ms normally, the objective is that the program inside the new sandbox will also run approximately X ms.
+The new sandbox needs to be optimized for running short-running programs as well as have minimal runtime overhead. Most of the test cases the tested program is run on are small and it completes them in less than 10ms. The goal is to allow hundreds of such sort-running runs per second, hence optimizing for short-running programs is important. However, minimizing overhead of the sandbox during the run is also important i.e. if the program runs X ms normally, the objective is that the program inside the new sandbox will also run approximately X ms.
 
-The new sandbox needs to be versatile. It will be used to secure the compilation of the solutions as well as running of the solutions. Compilation is a complicated process that involves parsing, translating, optimizing and linking the final program. For languages like C, C++ and Rust it involves running several executables in coordination e.g. compiler and linker i.e. more than one process at a moment --- the sandbox needs to support that.
+The new sandbox needs to be versatile. It will be used to secure the compilation of the tested programs as well as running of the tested programs. Compilation is a complicated process that involves parsing, translating, optimizing and linking the final program. For languages like C, C++ and Rust it involves running several executables in coordination e.g. compiler and linker i.e. more than one process at a moment --- the sandbox needs to support that.
 
-Sandboxing needs to have a low overhead. Apart from small test where solution runs quickly (a matter of milliseconds), almost always the solution is run on big test cases, where it may need several seconds for it to solve the problem. Increasing this time as little as possible while the solution is running inside the sandbox is one of the primary objectives.
+Sandboxing needs to have a low overhead. Apart from small test where tested program runs quickly (a matter of milliseconds), almost always the tested program is run on big test cases, where it may need several seconds for it to solve the problem. Increasing this time as little as possible while the tested program is running inside the sandbox is one of the primary objectives.
 
-It often requires running several executables e.g. compiler and linker, so allowing a single process inside sandbox is not enough. Sandboxing solution is simpler, because it is a single process. But since it is often short-running, the overhead needs to be minimal.
+It often requires running several executables e.g. compiler and linker, so allowing a single process inside sandbox is not enough. Sandboxing the tested program is simpler, because it is a single process. But since it is often short-running, the overhead needs to be minimal.
 
 The sandbox needs to allow limiting resources. Real time, CPU time, memory -- these need to be limited not only for the robustness of the platform, but specific problems require different limits. The goal of some problems is to solve it with very restricted memory e.g. find a missing integer in a random permutation of integers $1, \ldots, n$ without one element, but in constant memory.
 
@@ -730,7 +730,7 @@ Unsharing of network, ipc, uts and time namespace is done in the supervisor proc
 
 \section{Integration with Online Judge Platform}
 
-To integrate the new sandbox with the Online Judge Platform, a suite for each language was needed. The suite sandboxes the compiler if the language is compiled and sandboxes the runtime of the solution. The following suites were implemented:
+To integrate the new sandbox with the Online Judge Platform, a suite for each language was needed. The suite sandboxes the compiler if the language is compiled and sandboxes the runtime of the tested program. The following suites were implemented:
 
 \begin{itemize}
     \item C, C++, Pascal and Rust --- fully compiled languages, the suite has to sandbox the compilation process and a fully compiled executable.
@@ -753,44 +753,44 @@ Bash and Python require no additional bind mounts.
 
 \subsection{Interactive problems}
 
-Interactive problems require the solution to communicate with the checker program i.e. the standard input of the solution is the standard output of the checker program and the standard output of the solution is the standard input of the checker program. Figure \ref{fig:intaractive_problem_communication_schema} illustrates this configuration. To accomplish this we need two pipes, one for each communication channel. However, the judge needs to know which process died first to provide a reasonable verdict of checking the solution on the test.
+Interactive problems require the tested program to communicate with the checker program i.e. the standard input of the tested program is the standard output of the checker program and the standard output of the tested program is the standard input of the checker program. Figure \ref{fig:intaractive_problem_communication_schema} illustrates this configuration. To accomplish this we need two pipes, one for each communication channel. However, the judge needs to know which process died first to provide a reasonable verdict of checking the tested program on the test.
 
-To see why, lets consider the two examples. In the first one, the checker decides early that the solution answered wrong, it terminates with a message ''Wrong answer''. Then, the pipe closes and the solution may get terminated by \texttt{SIGPIPE} for trying to write to the closed pipe. If this happens, the solution's abnormal death is caused by the checker exiting early. In this situation verdict ''Wrong answer'' is the expected verdict. In the second example, an incorrect solution terminates early and abnormally. In this case, the pipe closes after solution's death and the checker sees the output of the solution as incomplete and decides ''Wrong answer''. However, in this example an expected verdict would be ''Runtime error'' because the solution's death caused checker to decide ''Wrong answer'', therefore solution's abnormal death takes precedence here. If we don't know who died first in such cases, we cannot reliably deduce the primary cause and therefore cannot decide what is more important, a solution's abnormal death or the checker's verdict.
+To see why, lets consider the two examples. In the first one, the checker decides early that the tested program answered wrong, it terminates with a message ''Wrong answer''. Then, the pipe closes and the tested program may get terminated by \texttt{SIGPIPE} for trying to write to the closed pipe. If this happens, the tested program's abnormal death is caused by the checker exiting early. In this situation verdict ''Wrong answer'' is the expected verdict. In the second example, an incorrect tested program terminates early and abnormally. In this case, the pipe closes after tested program's death and the checker sees the output of the tested program as incomplete and decides ''Wrong answer''. However, in this example an expected verdict would be ''Runtime error'' because the tested program's death caused checker to decide ''Wrong answer'', therefore tested program's abnormal death takes precedence here. If we don't know who died first in such cases, we cannot reliably deduce the primary cause and therefore cannot decide what is more important, a tested program's abnormal death or the checker's verdict.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
 \centering
 \begin{tikzpicture}[align=center]
     \coordinate (center) at (0,0);
-    \node [draw, left=0.5cm of center] (solution) {solution};
+    \node [draw, left=0.5cm of center] (tested_program) {tested program};
     \node [draw, right=0.5cm of center] (checker) {checker};
 
-    \draw[->] (checker.north) to [out=90, in=90] node[pos=0.05, above right] {\texttt{stdout}} node[pos=0.95, above left] {\texttt{stdin}} (solution.north);
-    \draw[->] (solution.south) to [out=-90, in=-90] node[pos=0.05, below left] {\texttt{stdout}} node[pos=0.95, below right] {\texttt{stdin}} (checker.south);
+    \draw[->] (checker.north) to [out=90, in=90] node[pos=0.05, above right] {\texttt{stdout}} node[pos=0.95, above left] {\texttt{stdin}} (tested_program.north);
+    \draw[->] (tested_program.south) to [out=-90, in=-90] node[pos=0.05, below left] {\texttt{stdout}} node[pos=0.95, below right] {\texttt{stdin}} (checker.south);
 \end{tikzpicture}
-\caption{Schema of the communication between the solution and the checker in an interactive problem.}
+\caption{Schema of the communication between the tested program and the checker in an interactive problem.}
 \label{fig:intaractive_problem_communication_schema}
 \end{figure}
 
-To solve this, one could monitor the ends of the two pipes and see which end closes first. This is possible with e.g. \texttt{poll} syscall. However, it is prone to a race condition because the process monitoring the ends of the pipes may be scheduled after the checker and the solution process and see them as if they died at the same moment. For example, the solution process dies abnormally, then checker decides ''Wrong answer'' and exits and only then the \texttt{poll} syscall returns reporting all ends of the pipes as closed without the information which closed first. To avoid this race condition and decide reliably 4 pipes are needed and a process that glues both pairs of pipes together and detects which end is closed first. Figure \ref{fig:interactive_problem_real_communication} illustrates this configuration. As long as, the third process holds open inner four ends of the pipe pairs, the solution and the checker will not see their \texttt{stdin} and \texttt{stdout} as broken and will not proceed (to terminate, either normally or not). This way we can reliably detect who dies first and give a correct verdict in the scenarios where one's death causes the other's death. To efficiently pass messages in the third process, the \texttt{splice} syscall is used.
+To solve this, one could monitor the ends of the two pipes and see which end closes first. This is possible with e.g. \texttt{poll} syscall. However, it is prone to a race condition because the process monitoring the ends of the pipes may be scheduled after the checker and the tested program process and see them as if they died at the same moment. For example, the tested program process dies abnormally, then checker decides ''Wrong answer'' and exits and only then the \texttt{poll} syscall returns reporting all ends of the pipes as closed without the information which closed first. To avoid this race condition and decide reliably 4 pipes are needed and a process that glues both pairs of pipes together and detects which end is closed first. Figure \ref{fig:interactive_problem_real_communication} illustrates this configuration. As long as, the third process holds open inner four ends of the pipe pairs, the tested program and the checker will not see their \texttt{stdin} and \texttt{stdout} as broken and will not proceed (to terminate, either normally or not). This way we can reliably detect who dies first and give a correct verdict in the scenarios where one's death causes the other's death. To efficiently pass messages in the third process, the \texttt{splice} syscall is used.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
 \centering
 \begin{tikzpicture}[align=center]
     \node [draw, minimum height=4cm] (communicator) {communication\\process};
-    \node [draw, left=0.5cm of communicator] (solution) {solution};
+    \node [draw, left=0.5cm of communicator] (tested_program) {tested program};
     \node [draw, right=0.5cm of communicator] (checker) {checker};
 
-    \node [draw, dotted, above=1cm of solution] (pipe_up_left) {pipe};
-    \node [draw, dotted, below=1cm of solution] (pipe_down_left) {pipe};
+    \node [draw, dotted, above=1cm of tested_program] (pipe_up_left) {pipe};
+    \node [draw, dotted, below=1cm of tested_program] (pipe_down_left) {pipe};
     \node [draw, dotted, above=1cm of checker] (pipe_up_right) {pipe};
     \node [draw, dotted, below=1cm of checker] (pipe_down_right) {pipe};
 
     \node [draw, circle, fill=black, inner sep=0, minimum size=1mm] (up_dot) at ($(pipe_up_left)!.5!(pipe_up_right)$) {};
     \node [draw, circle, fill=black, inner sep=0, minimum size=1mm] (down_dot) at ($(pipe_down_left)!.5!(pipe_down_right)$) {};
 
-    \draw[->] (solution) -- node[left] {\texttt{stdout}} (pipe_down_left);
+    \draw[->] (tested_program) -- node[left] {\texttt{stdout}} (pipe_down_left);
     \draw[->] (pipe_down_left) -- (down_dot);
     \draw[->] (down_dot) -- (pipe_down_right);
     \draw[->] (pipe_down_right) -- node[right] {\texttt{stdin}} (checker);
@@ -798,40 +798,40 @@ To solve this, one could monitor the ends of the two pipes and see which end clo
     \draw[->] (checker) -- node[right] {\texttt{stdout}} (pipe_up_right);
     \draw[->] (pipe_up_right) -- (up_dot);
     \draw[->] (up_dot) -- (pipe_up_left);
-    \draw[->] (pipe_up_left) -- node[left] {\texttt{stdin}} (solution);
+    \draw[->] (pipe_up_left) -- node[left] {\texttt{stdin}} (tested_program);
 \end{tikzpicture}
-\caption{This is how communication between the solution and the checker is implemented. Two pairs of pipes are used. This allows detection which process dies first --- the solution or the checker. Because the communication process does not close its ends of the pipes first, it can detect which process died first without causing the second to die because of a broken pipe. To efficiently pass messages in the communication process, the \texttt{splice} syscall is used.}
+\caption{This is how communication between the tested program and the checker is implemented. Two pairs of pipes are used. This allows detection which process dies first --- the tested program or the checker. Because the communication process does not close its ends of the pipes first, it can detect which process died first without causing the second to die because of a broken pipe. To efficiently pass messages in the communication process, the \texttt{splice} syscall is used.}
 \label{fig:interactive_problem_real_communication}
 \end{figure}
 
 \subsection{Non-interactive problems}
 
-In the non-interactive problems, the semantics of the input is read-once and of the output is write-once. To achieve this without disallowing \texttt{dup}'ing, \texttt{close}'ing, \texttt{mmap}'ping, \texttt{pread}'ing etc. of the standard input and output file descriptors, we use pipes that are read-once and write-once. Input file is piped to \texttt{stdin} of the solution, and solution's output is piped to the output file. Figure \ref{fig:noninteractive_problem_communication} illustrates this configuration. To efficiently pass messages between a pipe and a file the \texttt{splice} syscall is used.
+In the non-interactive problems, the semantics of the input is read-once and of the output is write-once. To achieve this without disallowing \texttt{dup}'ing, \texttt{close}'ing, \texttt{mmap}'ping, \texttt{pread}'ing etc. of the standard input and output file descriptors, we use pipes that are read-once and write-once. Input file is piped to \texttt{stdin} of the tested program, and the tested program's output is piped to the output file. Figure \ref{fig:noninteractive_problem_communication} illustrates this configuration. To efficiently pass messages between a pipe and a file the \texttt{splice} syscall is used.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
 \centering
 \begin{tikzpicture}[align=center]
     \node [draw, minimum height=4cm] (communicator) {communication\\process};
-    \node [draw, right=0.5cm of communicator] (solution) {solution};
-    \node [left=0.5cm of communicator] (left_node) {\phantom{solution}};
+    \node [draw, right=0.5cm of communicator] (tested_program) {tested program};
+    \node [left=0.5cm of communicator] (left_node) {\phantom{tested program}};
 
     \node [draw, dotted, above=1cm of left_node] (input_file) {input file};
     \node [draw, dotted, below=1cm of left_node] (output_file) {output file};
-    \node [draw, dotted, above=1cm of solution] (pipe_up) {pipe};
-    \node [draw, dotted, below=1cm of solution] (pipe_down) {pipe};
+    \node [draw, dotted, above=1cm of tested_program] (pipe_up) {pipe};
+    \node [draw, dotted, below=1cm of tested_program] (pipe_down) {pipe};
 
     \node [draw, circle, fill=black, inner sep=0, minimum size=1mm] (up_dot) at ($(input_file)!.5!(pipe_up)$) {};
     \node [draw, circle, fill=black, inner sep=0, minimum size=1mm] (down_dot) at ($(output_file)!.5!(pipe_down)$) {};
 
     \draw[->] (input_file) -- (up_dot);
     \draw[->] (up_dot) -- (pipe_up);
-    \draw[->] (pipe_up) -- node[right] {\texttt{stdin}} (solution);
-    \draw[->] (solution) -- node[right] {\texttt{stdout}} (pipe_down);
+    \draw[->] (pipe_up) -- node[right] {\texttt{stdin}} (tested_program);
+    \draw[->] (tested_program) -- node[right] {\texttt{stdout}} (pipe_down);
     \draw[->] (pipe_down) -- (down_dot);
     \draw[->] (down_dot) -- (output_file);
 \end{tikzpicture}
-\caption{To provide the read-once semantics of the standard input and the write-once semantics of the standard output the pipes are used. The communication process passes contents of the file to the input pipe that outputs to the solution's \texttt{stdin}. The solution's \texttt{stdout} is piped to the output file. To efficiently pass data between files and pipes in the communication process, the \texttt{splice} syscall is used.}
+\caption{To provide the read-once semantics of the standard input and the write-once semantics of the standard output the pipes are used. The communication process passes contents of the file to the input pipe that outputs to the tested program's \texttt{stdin}. The tested program's \texttt{stdout} is piped to the output file. To efficiently pass data between files and pipes in the communication process, the \texttt{splice} syscall is used.}
 \label{fig:noninteractive_problem_communication}
 \end{figure}
 
@@ -861,7 +861,7 @@ Executing a file may fail with \texttt{ENOENT}, even though the file exists. Thi
 
 \section{Conclusion}
 
-Despite challenges and complexity the sandbox was implemented and tested successfully. The usage of Linux namespaces provides isolation while cgroups and prlimits limit the resources. The sandbox is versatile enough to be used both as a sandbox for running a solution as well as for running the compiler. The goal of optimizing the implementation for short-running programs was achieved with several optimizations.
+Despite challenges and complexity the sandbox was implemented and tested successfully. The usage of Linux namespaces provides isolation while cgroups and prlimits limit the resources. The sandbox is versatile enough to be used both as a sandbox for running a tested program as well as for running the compiler. The goal of optimizing the implementation for short-running programs was achieved with several optimizations.
 
 \chapter{Performance Evaluation}\label{chapter:performance}
 
