@@ -67,6 +67,7 @@
 
 \usepackage[dateabbrev=false,date=iso,urldate=iso]{biblatex}
 \usepackage{csquotes}
+\usepackage{makecell}
 
 \addbibresource{references.bib}
 
@@ -863,11 +864,116 @@ Executing a file may fail with \texttt{ENOENT}, even though the file exists. Thi
 
 Despite challenges and complexity the sandbox was implemented and tested successfully. The usage of Linux namespaces provides isolation while cgroups and prlimits limit the resources. The sandbox is versatile enough to be used both as a sandbox for running a tested program as well as for running the compiler. The goal of optimizing the implementation for short-running programs was achieved with several optimizations.
 
+
 \chapter{Performance Evaluation}\label{chapter:performance}
 
-\chapter{Use Cases and Applications}\label{chapter:use_cases}
+All performance tests were made on a laptop with Intel i5-8250U processor and 16 GB of RAM. The purpose of this chapter is to verify the efficiency of the sandbox in the context of the online judge platform and briefly compare it with nsjail.
 
-\chapter{Future work and Opportunities}\label{chapter:future_work}
+\section{In the context of the online judge}
+
+For the testing we use problem Ptaszek from the XXI Polish Olimpiad in Informatics. The evaluation is done only on the test \texttt{pta9a}, because it is the test the solution runs the slowest on.
+
+\subsection{Compilation}
+
+Table \ref{table:compilation_real_time} contains measured real time of the compilation of the solution. Table \ref{table:compilation_cpu_time} contains measured CPU time of the same compilation. From the measurements we see slowdown in the sandbox of around 14\% compared to time outside the sandbox. However the slowdown is caused solely by the seccomp BPF filters, as without them the compilation takes around the same time as outside the sandbox. Command used in testing: \texttt{/usr/bin/g++ -std=c++17 -static source.cc -o exe}. Compiler version: 13.2.1. It is worth noting that the compilation required around 109\,000 syscalls, as reported by the \texttt{strace} tool \cite{strace} in a separate run.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|c|c|r|}
+\hline
+\multicolumn{1}{|c|}{Benchmark} & Mean real time & Std. dev. & Std. err. on the mean & \multicolumn{1}{c|}{Slowdown} \\
+\hline
+No sandbox             & 1.983 s & 0.048 s (2.40\%) & 0.015 s (0.76\%) & 0.00\% \\
+In sandbox             & 2.267 s & 0.035 s (1.52\%) & 0.011 s (0.48\%) & 14.32\% \\
+In sandbox without BPF & 1.977 s & 0.038 s (1.92\%) & 0.012 s (0.61\%) & -0.30\% \\
+\hline
+\end{tabular}
+\caption{Real time of compilation of the solution in different benchmarks. N = 10. First row presents time without sandbox, second with full sandbox and third with full sandbox without BPF filters.}
+\label{table:compilation_real_time}
+\end{table}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|c|c|r|}
+\hline
+\multicolumn{1}{|c|}{Benchmark} & Mean CPU time & Std. dev. & Std. err. on the mean & \multicolumn{1}{c|}{Slowdown} \\
+\hline
+No sandbox             & 1.968 s & 0.046 s (2.32\%) & 0.014 s (0.73\%) & 0.00\% \\
+In sandbox             & 2.249 s & 0.031 s (1.40\%) & 0.010 s (0.44\%) & 14.28\% \\
+In sandbox without BPF & 1.950 s & 0.036 s (1.84\%) & 0.011 s (0.58\%) & -0.91\% \\
+\hline
+\end{tabular}
+\caption{CPU time of compilation of the solution in different benchmarks. N = 10. First row presents time without sandbox, second with full sandbox and third with full sandbox without BPF filters.}
+\label{table:compilation_cpu_time}
+\end{table}
+
+\subsection{The test program}
+
+Table \ref{table:solution_cpu_time} contains measured CPU time of the tested program. From the data it is clear that there is no meaningful overhead for running the tested program inside the sandbox.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|c|c|r|}
+\hline
+\multicolumn{1}{|c|}{Benchmark} & Mean CPU time & Std. dev. & Std. err. on the mean & \multicolumn{1}{c|}{Slowdown} \\
+\hline
+No sandbox & 0.608 s & 0.005 s (0.89\%) & 0.002 s (0.28\%) & 0.00\% \\
+In sandbox & 0.609 s & 0.010 s (1.70\%) & 0.003 s (0.54\%) & 0.16\% \\
+\hline
+\end{tabular}
+\caption{CPU time of the solution in different benchmarks. N = 10. First row presents time without sandbox, second with full sandbox.}
+\label{table:solution_cpu_time}
+\end{table}
+
+\section{Short-running programs}
+
+An example of a short-running program is \texttt{/bin/true} --- we will use it in the benchmark. The metric we will use is the number of requests per second. Table \ref{table:sandbox_request_per_second} contains the measurements. While the slowdown is huge (more than twofold), it still allows for hundreds of runs per second and that was the goal of this thesis.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|c|c|r|}
+\hline
+\multicolumn{1}{|c|}{Benchmark} & Mean requests per second & Std. dev. & Std. err. on the mean & \multicolumn{1}{c|}{Slowdown} \\
+\hline
+No sandbox & 1138.6 & 23.70 (2.08\%) & 7.50 (0.66\%) & 0.00\% \\
+In sandbox & 472.9 & 7.36 (1.56\%) & 2.33 (0.49\%) & 58.47\% \\
+In nsjail     & 91.8 & 4.32 (4.70\%) & 1.36 (1.49\%) & 91.94\% \\
+\hline
+\end{tabular}
+\caption{The statistics were collected from 10 runs, each run executed 300 requests and divided the request number by the time it took to complete all requests to calculate the requests per second statistic.}
+\label{table:sandbox_request_per_second}
+\end{table}
+
+\section{Comparison with nsjail}
+
+nsjail does not reuse the resources between the runs. Therefore the requests per second metric is drastically lower than for our sandbox. This is presented in table \ref{table:sandbox_request_per_second}. The nsjail can handle around 5 times less requests per second than our solution. Moreover, our sandbox allows easy collection of the runtime statistics that nsjail is incapable of doing. Command used for benchmarking the nsjail: \texttt{/usr/bin/nsjail -q -Mo -{}-chroot / -{}-use\_cgroupv2 -{}- /bin/true}.
+
+\section{Impact of some optimizations}
+
+From the Table \ref{table:optimization_impact} it is clear that unsharing namespaces once instead of for every request has positive impact on the performance. The most meaningful was the network namespace that if unshared for every request resulted in 19\% performance degradation.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|c|c|r|}
+\hline
+\multicolumn{1}{|c|}{Benchmark} & \makecell{Mean requests\\per second} & Std. dev. & Std. err. on the mean & \multicolumn{1}{c|}{Slowdown} \\
+\hline
+Baseline                                              & 472.9 & 7.36 (1.56\%) & 2.33 (0.49\%) & 0.00\% \\
+\hline
+\makecell{New network namespace \\ for each request}  & 382.2 & 4.39 (1.15\%) & 1.39 (0.36\%) & 19.18\% \\
+\hline
+\makecell{New IPC namespace \\ for each request}      & 452.3 & 7.66 (1.69\%) & 2.42 (0.54\%) & 4.36\% \\
+\hline
+\makecell{New UTS namespace \\ for each request}      & 464.1 & 7.40 (1.59\%) & 2.34 (0.50\%) & 1.86\% \\
+\hline
+\end{tabular}
+\caption{The statistics were collected from 10 runs, each run executed 300 requests and divided the request number by the time it took to complete all requests to calculate the requests per second statistic.}
+\label{table:optimization_impact}
+\end{table}
+
+% \chapter{Use Cases and Applications}\label{chapter:use_cases}
+
+\chapter{Future work}\label{chapter:future_work}
 
 % Rust frontend.
 
