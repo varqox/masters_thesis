@@ -979,11 +979,23 @@ Although the slowdown of the compilation of around 14\% was unexpected it is acc
 
 \chapter{Future work}\label{chapter:future_work}
 
-% Rust frontend.
+There are several aspects that can be worked upon. Each of different degree of difficulty.
 
-% Setting CPU affinity could reduce variability of subsequent runs \cite{merry2010performance} -- checking it.
+\section{CPU affinity}
+
+Now, there is no support for setting CPU affinity mask for the request. Such support should be straightforward to add. It could reduce time variability of subsequent runs of the tested program \cite{merry2010performance}.
+
+\section{Adding support for networking}
+
+Although disabling the networking altogether is secure, adding a loopback device can be beneficial for some applications. Adding other devices requires superuser privileges and is out-of-scope for the current solution, but can be done with a \texttt{setuid} helper binary like in Firejail \cite{netblue30/firejail}.
+
+\section{Rust frontend}
+
+Implementing the client side (a frontend) in Rust language should ease the adoption of the sandbox. Rust is an efficient and secure programming language. In Rust a simple cargo package with the frontend could be implemented and published to the world. Such a package would be easy to use and allow easy and quick experimenting with the sandbox.
 
 \chapter{Conclusion}\label{chapter:conclusion}
+
+\chapter{Acknowledgements}\label{chapter:conclusion}
 
 \printbibliography
 
