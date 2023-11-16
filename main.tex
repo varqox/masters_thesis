@@ -3081,23 +3081,37 @@ Although the slowdown of the compilation of around 24\% and run time of the solu
 
 \chapter{Conclusion}\label{chapter:conclusion}
 
+The sandbox was successfully designed, implemented and integrated with the online judge platform. A new language suites --- for Python and Rust were implemented using it.
+
+The new sandbox is optimized for running short-running programs and the overhead of running one in below 3 ms. That is 4 times lower than the closest solution --- nsjail. The sandbox is versatile enough to sandbox simple user programs as well as the full compilation. The overhead of running the program in the sandbox is below 24\% and often it is even lower than 0\%.
+
+The sandbox allows limiting resources and collects the run-time statistics of the executed program. This is a very unique feature of our solution.
+
+Furthermore, our sandbox does not require any privileges --- it can be used by any unprivileged user.
+
+All in all, the goal of the thesis was achieved although with higher overheads than anticipated. However, the overhead is within the acceptable margin.
+
 \section{Future work}\label{chapter:future_work}
 
-There are several aspects that can be worked upon. Each of different degree of difficulty.
+There are several aspects that can be worked upon. Each of a different degree of difficulty.
 
-\section{CPU affinity}
+\subsection{CPU affinity}
 
 Now, there is no support for setting CPU affinity mask for the request. Such support should be straightforward to add. It could reduce time variability of subsequent runs of the tested program \cite{merry2010performance}.
 
-\section{Adding support for networking}
+\subsection{Adding support for networking}
 
 Although disabling the networking altogether is secure, adding a loopback device can be beneficial for some applications. Adding other devices requires superuser privileges and is out-of-scope for the current solution, but can be done with a \texttt{setuid} helper binary like in Firejail \cite{netblue30/firejail}.
 
-\section{Rust frontend}
+\subsection{Rust frontend}
 
 Implementing the client side (a frontend) in Rust language should ease the adoption of the sandbox. Rust is an efficient and secure programming language. In Rust a simple cargo package with the frontend could be implemented and published to the world. Such a package would be easy to use and allow easy and quick experimenting with the sandbox.
 
-\section{Acknowledgements}\label{chapter:conclusion}
+\subsection{Further experimentation}
+
+Investigating from where the speedups come from and why there are such big slowdowns despite BPF being disabled are what can be improved upon. Such knowledge would provide valuable insight into the situation.
+
+\section{Acknowledgements}
 
 We would like to thank Janina Minter-Daszkiewicz for relentless and valuable insight during the writing of the thesis.
 
