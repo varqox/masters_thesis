@@ -72,6 +72,8 @@
 \usepackage{longtable}
 \usepackage{makecell}
 \usepackage{multirow}
+% Appendices
+\usepackage[toc,page]{appendix}
 
 \makeatletter
 \def\@cline#1-#2\@nil{%
@@ -94,7 +96,7 @@
 \autor{Krzysztof Małysa}{394442}
 
 \title{Multi-process sandbox for unprivileged users on Linux}
-\titlepl{Sandbox wielu procesów dla nieuprzywilejowanych użytkowników systemu Linux}
+\titlepl{Wieloprocesowa piaskownica dla nieuprzywilejowanych użytkowników systemu Linux}
 
 %\tytulang{An implementation of a difference blabalizer based on the theory of $\sigma$ -- $\rho$ phetors}
 
@@ -124,8 +126,7 @@
 \opiekun{dr Janina Mincer-Daszkiewicz\\Institute of Informatics}
 
 % miesiąc i~rok:
-\date{December 2022}
-% \date{TODO}
+\date{December 2023}
 
 %Podać dziedzinę wg klasyfikacji Socrates-Erasmus:
 \dziedzina{
@@ -191,13 +192,13 @@ The goal of the thesis is to design, implement and integrate a new sandbox for t
 
 The new sandbox needs to be optimized for running short-running programs as well as have minimal runtime overhead. Most of the test cases the tested program is run on are small and it completes them in less than 10ms. The goal is to allow hundreds of such sort-running runs per second, hence optimizing for short-running programs is important. However, minimizing overhead of the sandbox during the run is also important i.e. if the program runs X ms normally, the objective is that the program inside the new sandbox will also run approximately X ms.
 
-The new sandbox needs to be versatile. It will be used to secure the compilation of the tested programs as well as running of the tested programs. Compilation is a complicated process that involves parsing, translating, optimizing and linking the final program. For languages like C, C++ and Rust it involves running several executables in coordination e.g. compiler and linker i.e. more than one process at a moment --- the sandbox needs to support that.
+The new sandbox needs to be versatile. It will be used to secure the compilation of the tested programs as well as running of the tested programs. Compilation is a complicated process that involves parsing, translating, optimizing and linking the final program. For languages like C, C++ and Rust it involves running several executables in coordination e.g. compiler and linker i.e. more than one process at a time --- the sandbox needs to support that.
 
-Sandboxing needs to have a low overhead. Apart from small test where tested program runs quickly (a matter of milliseconds), almost always the tested program is run on big test cases, where it may need several seconds for it to solve the problem. Increasing this time as little as possible while the tested program is running inside the sandbox is one of the primary objectives.
+Sandboxing needs to have a low overhead. Apart from small test where a tested program runs quickly (a matter of milliseconds), almost always the tested program is run on big test cases, where it may need several seconds for it to solve the problem. Increasing this time as little as possible while the tested program is running inside the sandbox is one of the primary objectives.
 
 It often requires running several executables e.g. compiler and linker, so allowing a single process inside sandbox is not enough. Sandboxing the tested program is simpler, because it is a single process. But since it is often short-running, the overhead needs to be minimal.
 
-The sandbox needs to allow limiting resources. Real time, CPU time, memory -- these need to be limited not only for the robustness of the platform, but specific problems require different limits. The goal of some problems is to solve it with very restricted memory e.g. find a missing integer in a random permutation of integers $1, \ldots, n$ without one element, but in constant memory.
+The sandbox needs to allow limiting resources. Real time, CPU time, memory -- these need to be limited not only for the robustness of the platform, but specific problems require different limits. The goal of some problems is to solve it with very restricted memory e.g. find a missing integer in a random permutation of integers $1, \ldots, n$ without one element, but in $O(1)$ memory.
 
 The sandbox needs to account resource usage. For every test, the user is presented with consumed memory and CPU time by their solution. The sandbox needs to provide this information.
 
@@ -221,15 +222,15 @@ Rootless containers are containers \cite{rootless_containers_rs} that can be cre
 
 \section{Structure of the Thesis}
 
-Chapter \ref{chapter:literature_overview} contains overview of sandboxing techniques and existing implementations and comparative analysis of them. Details of design and architecture are described in chapter \ref{chapter:design}. Implementation is described in \ref{chapter:implementation}. Chapter \ref{chapter:performance} contains performance evaluation of the final implementation and impact of some optimizations. Finally, chapter \ref{chapter:conclusion} contains the conclusion and future work.
+Chapter \ref{chapter:problem_overview} contains overview of sandboxing techniques and existing implementations and comparative analysis of them. Details of design and architecture are described in Chapter \ref{chapter:design}. Implementation is described in Chapter \ref{chapter:implementation}. Chapter \ref{chapter:performance} contains performance evaluation of the final implementation and impact of some optimizations. Finally, Chapter \ref{chapter:conclusion} contains conclusions and suggestions for further work.
 
-\chapter{Literature overview}\label{chapter:literature_overview}
+\chapter{Problem overview}\label{chapter:problem_overview}
 
 \section{Overview of Sandboxing Techniques}
 
 During the first programming competitions, the human judges manually read and verified the source code of the contestants' solutions \cite{tochev2010validating}. Over time this became infeasible and gave birth to automatic judge systems.
 
-To prevent people from interfering with the normal workflow of the competition e.g. Denial of Service Attack by exhausting memory resources, the automatic judge systems need a secure way to compile and execute a contest's solution. This is where sandboxes come into place.
+To prevent people from interfering with the normal workflow of the competition, e.g. Denial of Service Attack by exhausting memory resources, the automatic judge systems need a secure way to compile and execute a contest's solution. This is where sandboxes come into place.
 
 First sandboxes required modification of the OS kernel \cite{provos2003improving, garfinkel2004janus, garfinkel2004ostia, jana2011txbox, li2014minibox}. While they had little run-time overhead, some of them were limited to single-threaded applications \cite{merry2009using}.
 
@@ -350,11 +351,11 @@ At startup, the server creates cgroup hierarchy and some namespaces so that they
 
 \subsection{Sandboxing request handling}
 
-For each request, the server process (aka supervisor) spawns the PID 1 process of the new PID namespace. Then the init process setups namespaces and some of the resource limits. Finally the PID 1 process spawns the tracee process that finishes configuration and executes the requested executable. So for each sandboxing request we spawn exactly 2 processes. However, the executed program can spawn new processes --- each of them is referred to as a "tracee process". The PID 1 process is necessary for a couple of reasons:
+For each request, the server process (aka supervisor) spawns the PID~1 process of the new PID namespace. Then the init process setups namespaces and some of the resource limits. Finally the PID~1 process spawns the tracee process that finishes configuration and executes the requested executable. So for each sandboxing request we spawn exactly 2 processes. However, the executed program can spawn new processes --- each of them is referred to as a "tracee process". The PID~1 process is necessary for a couple of reasons:
 \begin{itemize}
     \item It reaps the zombie processes in the tracee PID namespace.
-    \item It allows locking mount-points in the mount namespace. The tracee process is spawned in a new user and mount namespace. Mounts are performed by the PID 1 process, therefore all mounts become locked together and cannot be individually unmounted by the tracee \cite{man_mount_namespaces}. These mounts cannot be performed by the supervisor process instead, because it would alter the mount namespace for subsequent requests.
-    \item Inside a PID namespace, sending signals to the PID 1 process is allowed only for signals that the PID 1 process installed signal handler for. This could change the behavior for some programs, therefore a helper PID 1 process is needed.
+    \item It allows locking mount-points in the mount namespace. The tracee process is spawned in a new user and mount namespace. Mounts are performed by the PID~1 process, therefore all mounts become locked together and cannot be individually unmounted by the tracee \cite{man_mount_namespaces}. These mounts cannot be performed by the supervisor process instead, because it would alter the mount namespace for subsequent requests.
+    \item Inside a PID namespace, sending signals to the PID~1 process is allowed only for signals that the PID~1 process installed signal handler for. This could change the behavior for some programs, therefore a helper PID~1 process is needed.
 \end{itemize}
 
 This is shown on Figure \ref{fig:server_handles_request_after_execve}.
@@ -367,7 +368,7 @@ This is shown on Figure \ref{fig:server_handles_request_after_execve}.
     \node [draw, above left=1cm and 0.1cm of errors, minimum height=1.4832815729996514cm, minimum width=2.4cm] (client) {client};
     \node [draw, above right=1cm and 0.2cm of errors, minimum height=1.4832815729996514cm, minimum width=2.4cm] (supervisor) {supervisor\\process};
 
-    \node [draw, right=0cm and 0.9cm of supervisor, minimum height=1.4832815729996514cm, minimum width=2.4cm] (pid1) {PID 1\\process};
+    \node [draw, right=0cm and 0.9cm of supervisor, minimum height=1.4832815729996514cm, minimum width=2.4cm] (pid1) {PID~1\\process};
 
     \node [draw, above right=-0.4cm and 0.5cm of pid1.east] (tracee_mid) {tracee\\process};
     \node [draw, above=0.4cm of tracee_mid] (tracee_up) {tracee\\process};
@@ -410,7 +411,7 @@ This is shown on Figure \ref{fig:server_handles_request_after_execve}.
     };
 
 \end{tikzpicture}
-\caption{Sandbox server handles a request, at the moment after executing the requested executable. Sandbox server will die on fatal error leaving the error message for the client in the anonymous file. Sandbox server consist of the supervisor process and its child --- the PID 1 process that is spawned for each request. The PID 1 process performs a role of the init process in the PID namespace of the tracee processes.}
+\caption{Sandbox server handles a request, at the moment after executing the requested executable. Sandbox server will die on fatal error leaving the error message for the client in the anonymous file. Sandbox server consist of the supervisor process and its child --- the PID~1 process that is spawned for each request. The PID~1 process performs a role of the init process in the PID namespace of the tracee processes.}
 \label{fig:server_handles_request_after_execve}
 \end{figure}
 
@@ -421,7 +422,7 @@ The server gains write access to cgroup hierarchy by being executed through \tex
 At startup, the server process creates the cgroup v2 hierarchy that looks as follows:
 \begin{itemize}
     \item \texttt{/supervisor} --- cgroup of the supervisor process,
-    \item \texttt{/pid1} --- cgroup of the pid1 process,
+    \item \texttt{/pid1} --- cgroup of the PID~1 process,
     \item \texttt{/tracee} --- cgroup of the tracee processes.
 \end{itemize}
 After creation of the hierarchy it places the supervisor process in its cgroup. Subsequent processes are placed in their cgroups by making use of \texttt{CLONE\_INTO\_CGROUP} flag.
@@ -452,7 +453,7 @@ The supervisor process creates the following namespaces:
     \item UTS namespace --- to isolate every tracee from host's hostname, done once, for optimization,
     \item time namespace --- to isolate every tracee from host's time namespace, done once, for optimization.
 \end{itemize}
-The pid1 process creates the following namespaces:
+The PID~1 process creates the following namespaces:
 \begin{itemize}
     \item user namespace --- in order to create other namespaces and hide user ID and group ID,
     \item mount namespace --- to allow mounting requested mount-point hierarchy,
@@ -461,7 +462,7 @@ The pid1 process creates the following namespaces:
 The tracee process creates the following namespaces:
 \begin{itemize}
     \item user namespace --- in order to create other namespaces and hide user ID and group ID and lock the mount tree,
-    \item mount namespace --- in lock the mount tree created by pid1.
+    \item mount namespace --- in order to lock the mount tree created by PID~1 process.
 \end{itemize}
 The listed namespaces hierarchy is illustrated on Figure \ref{fig:server_namespaces}.
 
@@ -473,7 +474,7 @@ The listed namespaces hierarchy is illustrated on Figure \ref{fig:server_namespa
 
     \node [draw, below=0.7cm of client, minimum height=1.4832815729996514cm, minimum width=2.4cm] (supervisor) {supervisor\\process};
 
-    \node [draw, below=0.7cm of supervisor] (pid1) {PID 1 process};
+    \node [draw, below=0.7cm of supervisor] (pid1) {PID~1 process};
 
     \node [draw, below left=0.7cm and -1.7cm of pid1] (tracee_mid) {tracee\\process};
     \node [draw, left=0.3cm of tracee_mid] (tracee_left) {tracee\\process};
@@ -532,7 +533,7 @@ The listed namespaces hierarchy is illustrated on Figure \ref{fig:server_namespa
 
 The client sends requests via UNIX domain socket to the supervisor process. The results are sent via a pipe attached to the request. The pipe is attached to the request as a file descriptor using \texttt{SCM\_RIGHTS} control message \cite{man_unix}.
 
-The supervisor, pid1 and tracee process communicate via shared anonymous memory page. Figure \ref{fig:server_handles_request_before_execveat} illustrates this communication. Such communication requires no syscalls, is fast and reliable. This page is automatically unmapped upon \texttt{execveat} syscall \cite{man_execveat} in the tracee process, so it is protected from the tracee access.
+The supervisor, the PID~1 and the tracee processes communicate via shared anonymous memory page. Figure \ref{fig:server_handles_request_before_execveat} illustrates this communication. Such communication requires no syscalls, is fast and reliable. This page is automatically unmapped upon \texttt{execveat} syscall \cite{man_execveat} in the tracee process, so it is protected from the tracee access.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
@@ -542,7 +543,7 @@ The supervisor, pid1 and tracee process communicate via shared anonymous memory 
     \node [draw, above left=1cm and 0.1cm of errors, minimum height=1.4832815729996514cm, minimum width=2.4cm] (client) {client};
     \node [draw, above right=1cm and 0.2cm of errors, minimum height=1.4832815729996514cm, minimum width=2.4cm] (supervisor) {supervisor\\process};
 
-    \node [draw, right=0cm and 0.7cm of supervisor, minimum height=1.4832815729996514cm, minimum width=2.4cm] (pid1) {PID 1\\process};
+    \node [draw, right=0cm and 0.7cm of supervisor, minimum height=1.4832815729996514cm, minimum width=2.4cm] (pid1) {PID~1\\process};
 
     \node [draw, right=0cm and 0.7cm of pid1, minimum height=1.4832815729996514cm, minimum width=2.4cm] (tracee) {tracee\\process};
 
@@ -572,7 +573,7 @@ The supervisor, pid1 and tracee process communicate via shared anonymous memory 
     };
 
 \end{tikzpicture}
-\caption{Sandbox server handles a request, at the moment before executing the requested executable. Sandbox server will die on fatal error leaving the error message for the client in the anonymous file. Sandbox server consist of the supervisor process and its child --- the PID 1 process that is spawned for each request and its child --- the tracee process that will execute the requested executable. The tracee process saves in the shared memory the time just before \texttt{execveat} and signals the PID 1 process. The PID 1 process reads the time saved in the shared memory and starts the real and CPU timers. After the tracee process dies, the PID 1 process writes exit code and status of the tracee process and the time it died. Moreover, the shared memory is used to communicate fatal errors to the supervisor process.}
+\caption{Sandbox server handles a request, at the moment before executing the requested executable. Sandbox server will die on fatal error leaving the error message for the client in the anonymous file. Sandbox server consist of the supervisor process and its child --- the PID~1 process that is spawned for each request and its child --- the tracee process that will execute the requested executable. The tracee process saves in the shared memory the time just before \texttt{execveat} and signals the PID~1 process. The PID~1 process reads the time saved in the shared memory and starts the real and CPU timers. After the tracee process dies, the PID~1 process writes exit code and status of the tracee process and the time it died. Moreover, the shared memory is used to communicate fatal errors to the supervisor process.}
 \label{fig:server_handles_request_before_execveat}
 \end{figure}
 
@@ -582,11 +583,11 @@ The supervisor process drops all capabilities, sets securebits and \texttt{NO\_N
 
 \section{Hardening}
 
-The pid1 process, after spawning the tracee enters a new cgroup namespace to limit view of other namespaces i.e. if the tracee somehow takes control of the pid1 process, it will not be able to raise its PID and memory limit. Moreover a seccomp filter is installed to limit allowed syscalls only to those needed for reaping the orphaned zombie process, managing time limits and exiting upon tracee death.
+The PID~1 process, after spawning the tracee enters a new cgroup namespace to limit view of other namespaces i.e. if the tracee somehow takes control of the PID~1 process, it will not be able to raise its PID and memory limit. Moreover a seccomp filter is installed to limit allowed syscalls only to those needed for reaping the orphaned zombie process, managing time limits and exiting upon tracee death.
 
 \section{Conclusion}
 
-Client-server architecture allows time-performance optimizations. Furthermore, it allows more common work to be done once and simplifies implementation. For instance, file descriptors do not leak to other processes because there are no threads that could fork a new process. Request handling requires creation of 2 processes --- the PID 1 process and the tracee process that later executes the requested program. Resource limits and accounting is mostly performed by cgroups. Isolation is achieved by deft usage of Linux namespaces.
+Client-server architecture allows time-performance optimizations. Furthermore, it allows more common work to be done once and simplifies implementation. For instance, file descriptors do not leak to other processes because there are no threads that could fork a new process. Request handling requires creation of 2 processes --- the PID~1 process and the tracee process that later executes the requested program. Resource limits and accounting is mostly performed by cgroups. Isolation is achieved by deft usage of Linux namespaces.
 
 \chapter{Implementation}\label{chapter:implementation}
 
@@ -596,7 +597,7 @@ The project is written in C++, as it is a low-overhead, low-level language, but 
 
 The client has to spawn the sandbox server --- the supervisor process. It then operates on the connection handle. Using the connection handle, the client can send requests to execute programs in the sandbox.
 
-After sending a request, a request handle object is constructed. It can be used to obtain result of the execution, cancel execution or kill the tracee processes. Canceling execution is useful in case of errors in the client, where the result of the execution as well as the execution itself are no longer needed. Upon cancellation of the request, tracee process are immediately killed. Result of running the request is discarded. Canceling an already finished request discards the result. Canceling the request before the server started handling it causes it to be skipped. Killing an already finished request is no-op. Killing the request before the server started handling it causes tracee to be immediately killed after the \texttt{execveat}.
+After sending a request, a request handle object is constructed. It can be used to obtain result of the execution, cancel execution or kill the tracee processes. Canceling execution is useful in case of errors in the client, where the result of the execution as well as the execution itself are no longer needed. Upon cancellation of the request, the tracee processes are immediately killed. The result of running the request is discarded. Canceling an already finished request discards the result. Canceling the request before the server started handling it causes it to be skipped. Killing an already finished request is no-op. Killing the request before the server started handling it causes tracee to be immediately killed after the \texttt{execveat}.
 
 The client can then await the result of the request using the request handle. The result can either be a successful result or an error with a textual description. This error is not fatal to the supervisor process i.e. new requests can be sent. The successful result consists of the exit code and status, and runtime statistics:
 \begin{itemize}
@@ -622,23 +623,23 @@ Each request has a set of accompanying options:
 
 \section{Time limits}
 
-The PID 1 process controls the time limits. The tracee process, just before \texttt{execveat} saves current real time from \texttt{CLOCK\_MONOTONIC\_RAW} and CPU time from \texttt{cpu.stat} tracee cgroup file to the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}). The problem with \texttt{cpu.stat} file is that it is updated infrequently. For a young tracee process, this file often reports consumed CPU time equal to 0 microseconds instead of a few hundred microseconds. Fortunately, executing \texttt{sched\_yield()} system call forces recalculation of the file and the values are no longer 0. This is why this syscall is required as allowed in the seccomp BPF filter.
+The PID~1 process controls the time limits. The tracee process, just before \texttt{execveat} saves current real time from \texttt{CLOCK\_MONOTONIC\_RAW} and CPU time from \texttt{cpu.stat} tracee cgroup file to the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}). The problem with \texttt{cpu.stat} file is that it is updated infrequently. For a young tracee process, this file often reports consumed CPU time equal to 0 microseconds instead of a few hundred microseconds. Fortunately, executing \texttt{sched\_yield()} system call forces recalculation of the file and the values are no longer 0. This is why this syscall is required as allowed in the seccomp BPF filter.
 
 \subsection{Real time limit}
 
-After saving the current real time the tracee process signals the PID 1 process with \texttt{SIGUSR2}. The PID 1 process reads the saved real time and sets up a POSIX timer to expire at the moment of saved time + real time limit. When the timer expires, \texttt{SIGUSR1} is sent by the kernel to the PID 1 process and it terminates all tracee processes by writing 1 to the \texttt{cgroup.kill} file of the tracee cgroup.
+After saving the current real time the tracee process signals the PID~1 process with \texttt{SIGUSR2}. The PID~1 process reads the saved real time and sets up a POSIX timer to expire at the moment of saved time + real time limit. When the timer expires, \texttt{SIGUSR1} is sent by the kernel to the PID~1 process and it terminates all tracee processes by writing 1 to the \texttt{cgroup.kill} file of the tracee cgroup.
 
 \subsection{CPU time limit}
 
 In case the tracee is not restricted to one process, the setup is analogous to real time except that there is no CPU timer for a cgroup of processes. Instead we calculate minimal period of time in which the CPU time limit could expire as follows: $\frac{\text{remaining cpu time}}{\text{max parallelism}}$, where max parallelism equals: $\min(\text{available threads}, \text{\texttt{process\_num\_limit}}, \text{\texttt{cpu\_max\_bandwidth} in threads})$. Upon the timer expiration the remaining cpu time is recalculated and the timer is rescheduled if the remaining cpu time is greater than 0. Timer expiration is signaled by the kernel as signal \texttt{SIGXCPU}. To prevent polling, the minimal timer expiration period is capped to have minimum value of 1ms --- this gives at most 1000 checks per second.
 
-In case the tracee is restricted to one process, the setup is different. After saving the current CPU time the tracee process signals the PID 1 process through a pipe. A signal cannot be used because \texttt{timer\_create} syscall and \texttt{clock\_getcpuclockid} library function are not marked async-signal-safe --- they are not specified to be safe to call inside a signal handler. An \texttt{eventfd} cannot be used either, because if tracee dies before writing to the \texttt{eventfd}, the PID 1 process will wait indefinitely on the \texttt{read} syscall. With a pipe, \texttt{read} syscall returns 0 when the other end becomes closed. With the limit of one process we use the CPU timer of the tracee process and set up a timer to expire when the tracee exceeds the CPU time limit.
+In case the tracee is restricted to one process, the setup is different. After saving the current CPU time the tracee process signals the PID~1 process through a pipe. A signal cannot be used because \texttt{timer\_create} syscall and \texttt{clock\_getcpuclockid} library function are not marked async-signal-safe --- they are not specified to be safe to call inside a signal handler. An \texttt{eventfd} cannot be used either, because if tracee dies before writing to the \texttt{eventfd}, the PID~1 process will wait indefinitely on the \texttt{read} syscall. With a pipe, \texttt{read} syscall returns 0 when the other end becomes closed. With the limit of one process we use the CPU timer of the tracee process and set up a timer to expire when the tracee exceeds the CPU time limit.
 
-In both cases, when the CPU time limit is exceeded, the PID 1 process is signaled about it and it terminates all tracee processes by writing 1 to \texttt{cgroup.kill} file of the tracee cgroup.
+In both cases, when the CPU time limit is exceeded, the PID~1 process is signaled about it and it terminates all tracee processes by writing 1 to \texttt{cgroup.kill} file of the tracee cgroup.
 
 \section{Runtime statistics}
 
-After the main tracee process (the first spawned process) exits, the PID 1 process saves the current real time and the exit status in the shared memory, unless the tracee set an error, and exits. The kernel kills all remaining tracee processes (because the PID namespace's init process died). After the PID 1 process exits, the supervisor process reads the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}). It checks if there is an error of either tracee or PID 1 process. If there is one, it becomes the result of the request. If there is none, the supervisor process calculates:
+After the main tracee process (the first spawned process) exits, the PID~1 process saves the current real time and the exit status in the shared memory, unless the tracee set an error, and exits. The kernel kills all remaining tracee processes (because the PID namespace's init process died). After the PID~1 process exits, the supervisor process reads the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}). It checks if there is an error of either tracee or PID~1 process. If there is one, it becomes the result of the request. If there is none, the supervisor process calculates:
 \begin{itemize}
     \item real time using formula: $\text{time of tracee death} - \text{saved \texttt{execveat} real time}$,
     \item CPU time using formula: $\text{CPU time read from \texttt{cpu.stat} file} - \text{saved \texttt{execveat} CPU time}$,
@@ -649,19 +650,19 @@ After the main tracee process (the first spawned process) exits, the PID 1 proce
 
 Errors in the supervisor process are considered fatal and are reported by writing to \texttt{stderr}. After writing errors, the supervisor process exits immediately. When the client tries to read the request result, the read will fail with \texttt{read} returning unexpected value 0. The client then ensures the supervisor process is dead (in case the communication failed) and tries to read the error the supervisor wrote. If the client finds one it throws exception with this error, otherwise it throws the exception with the \texttt{read} error.
 
-The PID 1 process and tracee process write error to the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}) and exit immediately. The supervisor process reports these errors as a request result.
+The PID~1 process and the tracee process write error to the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}) and exit immediately. The supervisor process reports these errors as a request result.
 
 \section{Request sending and receiving}
 
-The request is sent via UNIX domain socket (see Figure \ref{fig:server_waits_for_request}). The request consists of a constant-length with file descriptors and a variable length body. The request header contains only the length of the request body. The request body contains all parameters of the request that are serialized to a custom binary format.
+The request is sent via UNIX domain socket (see Figure \ref{fig:server_waits_for_request}). The request consists of a constant-length header with file descriptors and a variable length body. The request header contains only the length of the request body. The request body contains all parameters of the request that are serialized to a custom binary format.
 
 \section{File descriptors}
 
-The sandbox server closes all file descriptors except the UNIX socket fd and opens \texttt{/dev/null} as \texttt{stdin}, \texttt{stdout}, and \texttt{stderr}. This is a small optimization, in case the request does not specify a standard file descriptor. For instance, if the request is to execute a program without \texttt{stdin}, the sandbox server has to set up the \texttt{stdin} of the tracee process to be \texttt{/dev/null} opened for reading. However, the tracee process inherits the file descriptors of the PID 1 process that inherits the file descriptors of the supervisor process. The supervisor process has already opened \texttt{/dev/null} as the \texttt{stdin} file descriptor. Therefore no action is needed in the PID 1 process and the tracee process for \texttt{stdin} of the tracee process to be \texttt{/dev/null} opened for reading. The same principle applies to \texttt{stdout} and \texttt{stderr} file descriptors.
+The sandbox server closes all file descriptors except the UNIX socket fd and opens \texttt{/dev/null} as \texttt{stdin}, \texttt{stdout}, and \texttt{stderr}. This is a small optimization, in case the request does not specify a standard file descriptor. For instance, if the request is to execute a program without \texttt{stdin}, the sandbox server has to set up the \texttt{stdin} of the tracee process to be \texttt{/dev/null} opened for reading. However, the tracee process inherits the file descriptors of the PID~1 process that inherits the file descriptors of the supervisor process. The supervisor process has already opened \texttt{/dev/null} as the \texttt{stdin} file descriptor. Therefore no action is needed in the PID~1 process and the tracee process for \texttt{stdin} of the tracee process to be \texttt{/dev/null} opened for reading. The same principle applies to \texttt{stdout} and \texttt{stderr} file descriptors.
 
 All file descriptors are opened with \texttt{O\_CLOEXEC} flag so that they will not leak to the executed process. A unit test to check if any file descriptor leaks to the sandboxed program is in the test suite.
 
-The PID 1 process inherits all request standard file descriptors and passes them to the tracee process. It has to close them after spawning the tracee process. To see why, let's consider a pipe of which one end is passed as a \texttt{stdin} to the sandboxed program. A pipe is broken if all file descriptors of one end become closed. If the PID 1 process did not close the standard file descriptors of the tracee, the pipe could not become broken until the PID 1 process dies. This changes the semantics of the pipe if the program is run inside the sandbox and is undesirable. Moreover, for hardening purposes the PID 1 process closes all unnecessary file descriptors after spawning tracee --- in case, the tracee somehow takes control of the PID 1 process.
+The PID~1 process inherits all request standard file descriptors and passes them to the tracee process. It has to close them after spawning the tracee process. To see why, let's consider a pipe of which one end is passed as a \texttt{stdin} to the sandboxed program. A pipe is broken if all file descriptors of one end become closed. If the PID~1 process did not close the standard file descriptors of the tracee, the pipe could not become broken until the PID~1 process dies. This changes the semantics of the pipe if the program is run inside the sandbox and is undesirable. Moreover, for hardening purposes the PID~1 process closes all unnecessary file descriptors after spawning the tracee --- in case, the tracee somehow takes control of the PID~1 process.
 
 \section{Canceling the request}
 
@@ -669,15 +670,15 @@ The response to the request is passed via pipe that is provided alongside the re
 
 \section{Killing the request}
 
-Alongside request is send an \texttt{eventfd} file descriptor. The supervisor process monitors this file descriptor and if it becomes readable i.e. the client writes a value to it, the tracee is killed immediately. To avoid false-positive errors (the tracee process is killed unexpectedly), if the request is killed before \texttt{execveat} syscall executing the requested program, killing of the tracee is delayed to the \texttt{execve} moment.
+The \texttt{eventfd} file descriptor is sent with the request. The supervisor process monitors this file descriptor and if it becomes readable i.e. the client writes a value to it, the tracee is killed immediately. To avoid false-positive errors (the tracee process is killed unexpectedly), if the request is killed before \texttt{execveat} syscall executing the requested program, killing of the tracee is delayed to the \texttt{execve} call.
 
 \section{Sandbox server upon client death}
 
-The supervisor process monitors the UNIX socket through which the requests flow in. If the other end becomes read and write closed, the supervisor recognises it as a death of the client process and dies immediately. The PID 1 process is configured to die upon the supervisor process death, and the kernel kills all tracee processes when the PID 1 process dies. Therefore, all server processes die.
+The supervisor process monitors the UNIX socket through which the requests flow in. If the other end becomes read and write closed, the supervisor recognises it as a death of the client process and dies immediately. The PID~1 process is configured to die upon the supervisor process death, and the kernel kills all tracee processes when the PID~1 process dies. Therefore, all server processes die.
 
-\section{PID 1 process upon supervisor death}
+\section{PID~1 process upon supervisor death}
 
-The PID 1 process configures kernel to kill it upon the supervisor process death. This is done using \texttt{prctl}'s option \texttt{PR\_SET\_PDEATHSIG}. However, if the supervisor dies before the kernel configures the PID 1 process to die, the PID 1 process will still be alive and waste the resources. To solve this, one could check if the \texttt{getppid()} returns the expected PID of the supervisor process. However, this will not work, since the PID 1 process is in a new PID namespace, and \texttt{getppid()} will always return 0. A reliable solution is to pass a pidfd file descriptor of the supervisor process and check if the supervisor process is dead by checking if the pidfd file descriptor became readable. This way, upon supervisor process death, the PID 1 process is either killed by the kernel or it detects the death of the supervisor process and kills itself.
+The PID~1 process configures the kernel to kill it upon the supervisor process death. This is done using \texttt{prctl}'s option \texttt{PR\_SET\_PDEATHSIG}. However, if the supervisor dies before the kernel configures the PID~1 process to die, the PID~1 process will still be alive and waste the resources. To solve this, one could check if the \texttt{getppid()} returns the expected PID of the supervisor process. However, this will not work, since the PID~1 process is in a new PID namespace, and \texttt{getppid()} will always return 0. A reliable solution is to pass a pidfd file descriptor of the supervisor process and check if the supervisor process is dead by checking if the pidfd file descriptor became readable. This way, upon supervisor process death, the PID~1 process is either killed by the kernel or it detects the death of the supervisor process and kills itself.
 
 \section{Signals}
 
@@ -685,7 +686,7 @@ Signals are another way the processes can communicate with each other. They have
 
 \subsection{Tracee signals}
 
-Tracee can signal only to the visible processes and those are limited by the PID namespace. However, it can also send signals to its process group that can span multiple PID namespaces. Figure \ref{fig:pgid_and_pid_namespace} illustrates this situation. Therefore it is necessary to set new process group for the tracee processes. Furthermore, as a hardening, a new process group is set for the PID 1 process as well, in case the tracee takes control of it.
+The tracee can signal only to the visible processes and those are limited by the PID namespace. However, it can also send signals to its process group that can span multiple PID namespaces. Figure \ref{fig:pgid_and_pid_namespace} illustrates this situation. Therefore it is necessary to set new process group for the tracee processes. Furthermore, as a hardening, a new process group is set for the PID~1 process as well, in case the tracee takes control of it.
 
 However, it is better to also set a new session id using \texttt{setsid} syscall instead of just the process group id to avoid vulnerabilities connected to the current controlling terminal \cite{bubblewrap_cve}.
 
@@ -726,7 +727,7 @@ Sending response to the client may generate \texttt{SIGPIPE} signal for the supe
 
 \subsection{Undefined Behavior Sanitizer}
 
-The code of the sandbox may be compiled with the Undefined Behavior Sanitizer (UBSan) enabled. UBSan installs signal handlers for \texttt{SIGBUS}, \texttt{SIGFPE} and \texttt{SIGSEGV} signals. This is problematic, because tracee could send these signals to the PID 1 process. For the init process in the PID namespace, the kernel only allows sending signals for which the init process (here the PID 1 process) has installed the signal handlers \cite{man_pid_namespaces}. Therefore the PID 1 process resets signal dispositions of these handlers if the UBSan is used to prevent tracee from sending these signals to the PID 1 process.
+The code of the sandbox may be compiled with the Undefined Behavior Sanitizer (UBSan) enabled. UBSan installs signal handlers for \texttt{SIGBUS}, \texttt{SIGFPE} and \texttt{SIGSEGV} signals. This is problematic, because the tracee could send these signals to the PID~1 process. For the init process in the PID namespace, the kernel only allows sending signals for which the init process (here the PID~1 process) has installed the signal handlers \cite{man_pid_namespaces}. Therefore the PID~1 process resets signal dispositions of these handlers if the UBSan is used to prevent the tracee from sending these signals to the PID~1 process.
 
 \section{Running as superuser}
 
@@ -736,9 +737,9 @@ The sandbox is not safe to be run by the superuser. If this is needed, then you 
 
 Everything that can be done is done in the supervisor process at startup, before handling requests e.g. creating cgroups, entering the network namespace, opening \texttt{/dev/null} as standard file descriptors. Sharing this work between requests ensures minimal overhead of handling the request i.e. it increases throughput (handled requests per second). Some of the optimizations are described in this section.
 
-\subsection{Seccomp filter of the PID 1 process}
+\subsection{Seccomp filter of the PID~1 process}
 
-The seccomp filter of the PID 1 process is created and compiled in the supervisor process. Therefore it is done once instead of for every request.
+The seccomp filter of the PID~1 process is created and compiled in the supervisor process. Therefore it is done once instead of for every request.
 
 \subsection{Seccomp filter as file descriptor}
 
@@ -746,7 +747,7 @@ The seccomp filter in a request is sent as a file descriptor. This avoids unnece
 
 \subsection{Unsharing network, ipc, uts and time namespace}
 
-Unsharing of network, ipc, uts and time namespace is done in the supervisor process, only once, at startup. This avoids doing it for every request in the PID 1 process and has non-negligible impact on the performance (see Chapter \ref{chapter:performance}).
+Unsharing of network, ipc, uts and time namespace is done in the supervisor process, only once, at startup. This avoids doing it for every request in the PID~1 process and has non-negligible impact on the performance (see Chapter \ref{chapter:performance}).
 
 \section{Integration with Online Judge Platform}
 
@@ -775,7 +776,7 @@ Bash and Python require no additional bind mounts.
 
 Interactive problems require the tested program to communicate with the checker program i.e. the standard input of the tested program is the standard output of the checker program and the standard output of the tested program is the standard input of the checker program. Figure \ref{fig:intaractive_problem_communication_schema} illustrates this configuration. To accomplish this we need two pipes, one for each communication channel. However, the judge needs to know which process died first to provide a reasonable verdict of checking the tested program on the test.
 
-To see why, lets consider the two examples. In the first one, the checker decides early that the tested program answered wrong, it terminates with a message ''Wrong answer''. Then, the pipe closes and the tested program may get terminated by \texttt{SIGPIPE} for trying to write to the closed pipe. If this happens, the tested program's abnormal death is caused by the checker exiting early. In this situation verdict ''Wrong answer'' is the expected verdict. In the second example, an incorrect tested program terminates early and abnormally. In this case, the pipe closes after tested program's death and the checker sees the output of the tested program as incomplete and decides ''Wrong answer''. However, in this example an expected verdict would be ''Runtime error'' because the tested program's death caused checker to decide ''Wrong answer'', therefore tested program's abnormal death takes precedence here. If we don't know who died first in such cases, we cannot reliably deduce the primary cause and therefore cannot decide what is more important, a tested program's abnormal death or the checker's verdict.
+To see why, lets consider the two examples. In the first one, the checker decides early that the tested program answered wrong, it terminates with a message ''Wrong answer''. Then, the pipe closes and the tested program may get terminated by \texttt{SIGPIPE} for trying to write to the closed pipe. If this happens, the tested program's abnormal death is caused by the checker exiting early. In this situation verdict ''Wrong answer'' is the expected verdict. In the second example, an incorrect tested program terminates early and abnormally. In this case, the pipe closes after the tested program's death and the checker sees the output of the tested program as incomplete and decides ''Wrong answer''. However, in this example an expected verdict would be ''Runtime error'' because the tested program's death caused checker to decide ''Wrong answer'', therefore the tested program's abnormal death takes precedence here. If we don't know who died first in such cases, we cannot reliably deduce the primary cause and therefore cannot decide what is more important, a the tested program's abnormal death or the checker's verdict.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
@@ -788,7 +789,7 @@ To see why, lets consider the two examples. In the first one, the checker decide
     \draw[->] (checker.north) to [out=90, in=90] node[pos=0.05, above right] {\texttt{stdout}} node[pos=0.95, above left] {\texttt{stdin}} (tested_program.north);
     \draw[->] (tested_program.south) to [out=-90, in=-90] node[pos=0.05, below left] {\texttt{stdout}} node[pos=0.95, below right] {\texttt{stdin}} (checker.south);
 \end{tikzpicture}
-\caption{Schema of the communication between the tested program and the checker in an interactive problem.}
+\caption{Schema of the communication between the tested program and the checker in the interactive problem.}
 \label{fig:intaractive_problem_communication_schema}
 \end{figure}
 
@@ -890,16 +891,16 @@ All performance tests were made on a laptop with Intel i5-8250U processor and 16
 
 \section{In the context of the online judge}
 
-For the testing we use tasks from the finale of XXII Polish Olimpiad in Informatics: Myjnie (myj), Tablice kierunkowe (tab), Modernizacja autostrady (mod), Wycieczki (wyc). The solutions programs are written by the problem package makers, they are used to verify the test cases will distinguish the different solutions of the users e.g. those running in $O(n)$ and $O(n^2)$. The model solution program is the main solution program that is the best solution program for the problem. In Polish it is called ''rozwiązanie wzorcowe''. The term ''solution'' can be misleading but is currently used in the English literature regarding Olympiads in Informatics \cite{kolstad2009infrastructure, marevs2012new, merry2010performance, merry2009using}.
+For the testing we use tasks from the finale of XXII Polish Olimpiad in Informatics: Myjnie (myj), Tablice kierunkowe (tab), Modernizacja autostrady (mod), Wycieczki (wyc). The people who prepare the problem package for the Olympiad write different solutions programs as part of creating the problem package. The solution programs are used to verify the test cases will distinguish the different solutions of the users e.g. those running in $O(n)$ and $O(n^2)$. The model solution program is the best solution program for the problem. In Polish it is called ''rozwiązanie wzorcowe''. The term ''solution'' can be misleading but is currently used in the English literature regarding Olympiads in Informatics \cite{kolstad2009infrastructure, marevs2012new, merry2010performance, merry2009using}.
 
-First, we compare the compilation times of all solution programs outside sandbox, inside sandbox and inside sandbox with BPF filters disabled. Then we compare the running times of the model solution program of each problem.
+First, we compare the compilation times of all solution programs outside sandbox, inside sandbox and inside sandbox with BPF filters disabled. Then we compare the running times outside the sandbox and inside the sandbox of the model solution program of each problem.
 
 \subsection{Compilation}
 
-Table \ref{table:myj_compilation} contains the compilation times of solution programs of problem Myjnie.
-Table \ref{table:tab_compilation} contains the compilation times of solution programs of problem Tablice kierunkowe.
-Table \ref{table:mod_compilation} contains the compilation times of solution programs of problem Modernizacja autostrady.
-Table \ref{table:wyc_compilation} contains the compilation times of solution programs of problem Wycieczki.
+Table \ref{table:myj_compilation} contains the compilation times of the solution programs of the problem Myjnie.
+Table \ref{table:tab_compilation} contains the compilation times of the solution programs of the problem Tablice kierunkowe.
+Table \ref{table:mod_compilation} contains the compilation times of the solution programs of the problem Modernizacja autostrady.
+Table \ref{table:wyc_compilation} contains the compilation times of the solution programs of the problem Wycieczki.
 
 From the measurements we see that most of the overhead comes from BPF filters that cause up to 10\% slowdown. The compilation in the sandbox can be slower by up to 24\%, but can be also be faster by up to 12\%. We could not identify where the speedup comes from, it requires further investigation. Most of the time, the sandbox's slowdown is below 10\% compared to compilation time without the sandbox.
 
@@ -910,9 +911,131 @@ Commands used in testing:
     \item Pascal --- \texttt{/usr/bin/fpc -O2 -XS -Xt -oexe source.pas}. Compiler version 3.3.2.
 \end{itemize}
 
-\newpage
+\subsection{Model solutions' run times}
 
-\subsubsection{Myjnie (myj)}
+Table \ref{table:myj_model_solution_runtimes} contains the run times of the model solution program of problem Myjnie.
+Table \ref{table:tab_model_solution_runtimes} contains the run times of the model solution program of problem Tablice kierunkowe.
+Table \ref{table:mod_model_solution_runtimes} contains the run times of the model solution program of problem Modernizacja autostrady.
+Table \ref{table:wyc_model_solution_runtimes} contains the run times of the model solution program of problem Wycieczki.
+
+From the measurements we see that on large tests (those with high runtime) the slowdown in the sandbox can be as high as 20\%. On smaller tests there is often a speed up but it can be caused by a different method of measuring runtime i.e. \texttt{perf stat} vs. sandbox i.e. real time timer and cgroup \texttt{cpu.stat} file. We could not identify the cause of the speedup on the large tests up to 15\%.
+
+\section{Short-running programs and comparison with nsjail}
+
+An example of a short-running program is \texttt{/bin/true} --- we will use it in the benchmark. The metric we will use is the round-trip time of the request to sandbox a program. Table \ref{table:bin_true_times} contains the measurements of the time to handle request to run the \texttt{/bin/true} program, without the sandbox, with sandbox and using nsjail. From the data we see that the nsjail is more than 4 times slower, while at the same time it does not spawn a separate PID~1 process and does not provide the runtime statistics. Our sandbox, while 2.39 times slower, still allows for hundreds requests per second --- and that was the goal of the thesis.
+
+\begin{small}
+\begin{longtable}{|l|r|r|r|r|}
+\hline
+\makecell{Sandbox} & \makecell{Mean time} & \makecell{Std. dev.} & \makecell{Std. err.\\on the mean} & \makecell{Slowdown} \\
+\hline
+no sandbox   & 0.893ms & 0.409ms (45.80\%) & 0.013ms (1.45\%) & 1x \\
+sandbox      & 2.348ms & 0.768ms (32.71\%) & 0.024ms (1.03\%) & 2.39x \\
+nsjail       & 10.393ms & 1.327ms (12.77\%) & 0.042ms (0.40\%) & 10.57x \\
+\hline
+\caption{Statistics for each row were collected from 1000 runs. Each row contains real time it took to handle request to sandbox the \texttt{/bin/true} program. While the slowdown of the sandbox is huge (more than twofold), it still allows for hundreds of runs per second and that was the goal of this thesis, whereas nsjail is more than 4 times slower than our sandbox.}
+\label{table:bin_true_times}
+\end{longtable}
+\end{small}
+
+nsjail does not provide any means to handle more than one program in one execution. This means that one execution of the nsjail program equals one execution of the sandboxed program. This way, the nsjail program cannot share resources e.g. namespaces between the runs and therefore should be slower than our solution. Our solution executes the server program once and it can handle more than one request for secure execution of a program therefore it can and shares the resources. This way, our solution has lower overhead per one execution of the sandboxed program.
+Therefore the request handle time is drastically lower than for our sandbox. This is presented in Table \ref{table:bin_true_times}. The nsjail can handle around 4.4 times less requests than our solution in a given time. Moreover, our sandbox allows easy collection of the runtime statistics that nsjail is incapable of doing. Command used for benchmarking the nsjail: \texttt{/usr/bin/nsjail -q -Mo -{}-chroot / -{}-use\_cgroupv2 -{}- /bin/true}.
+
+\section{Impact of some optimizations}
+
+From the Table \ref{table:optimization_impact} it is clear that unsharing namespaces once instead of for every request has positive impact on the performance. The most meaningful was the network namespace that if unshared for every request resulted in 26\% performance degradation.
+
+\begin{small}
+\begin{longtable}{|l|r|r|r|r|}
+\hline
+\multicolumn{1}{|c|}{Benchmark} & \makecell{Mean\\request time} & Std. dev. & Std. err. on the mean & \multicolumn{1}{c|}{Slowdown} \\
+\hline
+Baseline                                              & 2.348ms & 0.768ms (32.71\%) & 0.024ms (1.03\%) & 0.00\% \\
+\hline
+\makecell{New network namespace \\ for each request}  & 2.970ms & 0.856ms (28.83\%) & 0.027ms (0.91\%) & 26.49\% \\
+\hline
+\makecell{New IPC namespace \\ for each request}      & 2.522ms & 0.782ms (31.02\%) & 0.025ms (0.98\%) & 7.41\% \\
+\hline
+\makecell{New UTS namespace \\ for each request}      & 2.478ms & 0.771ms (31.14\%) & 0.024ms (0.98\%) & 5.54\% \\
+\hline
+\caption{Statistics for each row were collected from 1000 runs. Each row contains real time it took to handle request to sandbox the \texttt{/bin/true} program.}
+\label{table:optimization_impact}
+\end{longtable}
+\end{small}
+
+\iffalse
+\section{1'000'000 syscall benchmark}
+
+A test program that performs 1\,000\,000 times a \texttt{lseek} syscall was used to simulate a program that performs a very large number of syscalls. In table \ref{table:million_lseek} are listed the time measurements. From the data, we see that running an executable inside sandbox has negligible impact on its runtime. Adding a seccomp BPF filter makes a slowdown that is below 4\% for this synthetic, syscall-intensive program. However, this benchmark is artificial because a typical tested program preforms normally at most tens of thousands syscalls and the seccomp overhead affects only the syscalls, so the real overhead will be lower.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|c|c|r|}
+\hline
+\multicolumn{1}{|c|}{Benchmark} & Mean time & Std. dev. & Std. err. on the mean & \multicolumn{1}{c|}{Slowdown} \\
+\hline
+No sandbox          & 597.21 ms & 1.29 ms (0.22\%) & 0.38 ms (0.06\%) & 0.00\% \\
+In sandbox          & 598.81 ms & 3.62 ms (0.61\%) & 1.14 ms (0.19\%) & 0.27\% \\
+In sandbox with BPF & 620.17 ms & 3.69 ms (0.60\%) & 1.17 ms (0.19\%) & 3.84\% \\
+\hline
+\end{tabular}
+\caption{The statistics were collected from 10 runs. The three rows show the program runtime since before \texttt{execve} to \texttt{waitpid} in the parent process. The first row without the sandbox, the second inside sandbox and the third inside sandbox with a BPF filter allowing 249 common syscalls.}
+\label{table:million_lseek}
+\end{table}
+
+\fi
+
+\section{Conclusion}
+
+Although the slowdown of the compilation of around 24\% and run time of the solution program of around 20\% is noticeable, it is acceptable. More importantly, the overhead of running the tested program is more often negligible than not. Experiments showed that most of the compilation overhead is caused by BPF filters, but they are required for the security of the sandbox. The sandbox allows handling hundreds of requests per second. The concurrent solution --- nsjail is 4.4 times slower than ours. All in all, the goal of the thesis was achieved.
+
+\chapter{Conclusion}\label{chapter:conclusion}
+
+The sandbox was successfully designed, implemented and integrated with the online judge platform. A new language suites --- for Python and Rust were implemented using it.
+
+The new sandbox is optimized for running short-running programs and the overhead of running one in below 3 ms. That is 4 times lower than the closest solution --- nsjail. The sandbox is versatile enough to sandbox simple user programs as well as the full compilation. The overhead of running the program in the sandbox is below 24\% and often it is even lower than 0\%.
+
+The sandbox allows limiting resources and collects the run-time statistics of the executed program. This is a very unique feature of our solution.
+
+Furthermore, our sandbox does not require any privileges --- it can be used by any unprivileged user.
+
+All in all, the goal of the thesis was achieved although with higher overheads than anticipated. However, the overhead is within the acceptable margin.
+
+\section{Future work}\label{chapter:future_work}
+
+There are several aspects that can be worked upon. Each of a different degree of difficulty.
+
+\subsection{CPU affinity}
+
+Now, there is no support for setting CPU affinity mask for the request. Such support should be straightforward to add. It could reduce time variability of subsequent runs of the tested program \cite{merry2010performance}.
+
+\subsection{Adding support for networking}
+
+Although disabling the networking altogether is secure, adding a loopback device can be beneficial for some applications. Adding other devices requires superuser privileges and is out-of-scope for the current solution, but can be done with a \texttt{setuid} helper binary like in Firejail \cite{netblue30/firejail}.
+
+\subsection{Rust frontend}
+
+Implementing the client side (a frontend) in Rust language should ease the adoption of the sandbox. Rust is an efficient and secure programming language. In Rust a simple cargo package with the frontend could be implemented and published to the world. Such a package would be easy to use and allow easy and quick experimenting with the sandbox.
+
+\subsection{Further experimentation}
+
+Investigating from where the speedups come from and why there are such big slowdowns despite BPF being disabled are what can be improved upon. Such knowledge would provide valuable insight into the situation.
+
+\section{Acknowledgements}
+
+We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable insight during the writing of the thesis.
+
+\addcontentsline{toc}{chapter}{Bibliography}
+\printbibliography
+
+
+\begin{appendices}
+
+\chapter{Tables}
+
+\section{Compilation times}
+
+\subsection{Myjnie (myj)}
 
 \begin{small}
 \begin{longtable}{|l|c|c|r|r|r|r|}
@@ -1081,12 +1204,12 @@ Commands used in testing:
                             & \multirow{2}{*}{no BPF} & real & 2070.14ms & 38.98ms (1.88\%) & 12.33ms (0.60\%) & 2.82\% \\*
                             &                         & CPU  & 2053.40ms & 38.97ms (1.90\%) & 12.32ms (0.60\%) & 2.78\% \\
 \hline
-\caption{Compilation times of all solution programs of the problem Myjnie (myj) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured form the times of configuration without sandbox.}
+\caption{Compilation times of all solution programs of the problem Myjnie (myj) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:myj_compilation}
 \end{longtable}
 \end{small}
 
-\subsubsection{Tablice kierunkowe (tab)}
+\subsection{Tablice kierunkowe (tab)}
 
 \begin{small}
 \begin{longtable}{|l|c|c|r|r|r|r|}
@@ -1255,12 +1378,14 @@ Commands used in testing:
                             & \multirow{2}{*}{no BPF} & real & 2164.08ms & 43.88ms (2.03\%) & 13.87ms (0.64\%) & -0.90\% \\*
                             &                         & CPU  & 2141.77ms & 39.89ms (1.86\%) & 12.61ms (0.59\%) & -1.08\% \\
 \hline
-\caption{Compilation times of all solution programs of the problem Tablice kierunkowe (tab) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured form the times of configuration without sandbox.}
+\caption{Compilation times of all solution programs of the problem Tablice kierunkowe (tab) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:tab_compilation}
 \end{longtable}
 \end{small}
 
-\subsubsection{Modernizacja autostrady (mod)}
+\newpage
+
+\subsection{Modernizacja autostrady (mod)}
 
 \begin{small}
 \begin{longtable}{|l|c|c|r|r|r|r|}
@@ -1383,12 +1508,12 @@ Commands used in testing:
                             & \multirow{2}{*}{no BPF} & real & 487.78ms & 10.08ms (2.07\%) & 3.19ms (0.65\%) & -4.19\% \\*
                             &                         & CPU  & 482.33ms & 10.09ms (2.09\%) & 3.19ms (0.66\%) & -3.08\% \\
 \hline
-\caption{Compilation times of all solution programs of the problem Modernizacja autostrady (mod) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured form the times of configuration without sandbox.}
+\caption{Compilation times of all solution programs of the problem Modernizacja autostrady (mod) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:mod_compilation}
 \end{longtable}
 \end{small}
 
-\subsubsection{Wycieczki (wyc)}
+\subsection{Wycieczki (wyc)}
 
 \begin{small}
 \begin{longtable}{|l|c|c|r|r|r|r|}
@@ -1467,21 +1592,16 @@ Commands used in testing:
                             & \multirow{2}{*}{no BPF} & real & 996.27ms & 14.96ms (1.50\%) & 4.73ms (0.47\%) & -1.81\% \\*
                             &                         & CPU  & 982.35ms & 12.70ms (1.29\%) & 4.02ms (0.41\%) & -1.56\% \\
 \hline
-\caption{Compilation times of all solution programs of the problem Wycieczki (wyc) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured form the times of configuration without sandbox.}
+\caption{Compilation times of all solution programs of the problem Wycieczki (wyc) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:wyc_compilation}
 \end{longtable}
 \end{small}
 
-\subsection{Model solutions' run times}
+\newpage
 
-Table \ref{table:myj_model_solution_runtimes} contains the run times of the model solution program of problem Myjnie.
-Table \ref{table:tab_model_solution_runtimes} contains the run times of the model solution program of problem Tablice kierunkowe.
-Table \ref{table:mod_model_solution_runtimes} contains the run times of the model solution program of problem Modernizacja autostrady.
-Table \ref{table:wyc_model_solution_runtimes} contains the run times of the model solution program of problem Wycieczki.
+\section{Model solutions' run times}
 
-From the measurements we see that on large tests (those with high runtime) the slowdown in the sandbox can be as high as 20\%. On smaller tests there is often a seed-up but it can be caused by a different method of measuring runtime i.e. \texttt{perf stat} vs. sandbox i.e. real time timer and cgroup \texttt{cpu.stat} file. We could not identify the cause of the speedup on the large tests up to 15\%.
-
-\subsubsection{Myjnie (myj)}
+\subsection{Myjnie (myj)}
 
 \begin{small}
 \begin{longtable}{|l|c|c|r|r|r|r|}
@@ -1818,12 +1938,12 @@ From the measurements we see that on large tests (those with high runtime) the s
                           & \multirow{2}{*}{yes} & real & 1364.85ms & 19.99ms (1.46\%) & 6.32ms (0.46\%) & 7.54\% \\*
                           &                      & CPU  & 1357.45ms & 16.52ms (1.22\%) & 5.22ms (0.38\%) & 7.48\% \\
 \hline
-\caption{Run times of the model solution program of the problem Myjnie (myj) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured form the times of configuration without sandbox.}
+\caption{Run times of the model solution program of the problem Myjnie (myj) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:myj_model_solution_runtimes}
 \end{longtable}
 \end{small}
 
-\subsubsection{Tablice kierunkowe (tab)}
+\subsection{Tablice kierunkowe (tab)}
 
 \begin{small}
 \begin{longtable}{|l|c|c|r|r|r|r|}
@@ -2172,12 +2292,12 @@ From the measurements we see that on large tests (those with high runtime) the s
                           & \multirow{2}{*}{yes} & real & 106.16ms & 7.82ms (7.37\%) & 2.47ms (2.33\%) & 8.32\% \\*
                           &                      & CPU  & 105.38ms & 7.30ms (6.93\%) & 2.31ms (2.19\%) & 9.14\% \\
 \hline
-\caption{Run times of the model solution program of the problem Tablice kierunkowe (tab) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured form the times of configuration without sandbox.}
+\caption{Run times of the model solution program of the problem Tablice kierunkowe (tab) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:tab_model_solution_runtimes}
 \end{longtable}
 \end{small}
 
-\subsubsection{Modernizacja autostrady (mod)}
+\subsection{Modernizacja autostrady (mod)}
 
 \begin{small}
 \begin{longtable}{|l|c|c|r|r|r|r|}
@@ -2598,12 +2718,12 @@ From the measurements we see that on large tests (those with high runtime) the s
                           & \multirow{2}{*}{yes} & real & 515.51ms & 6.05ms (1.17\%) & 1.91ms (0.37\%) & -1.46\% \\*
                           &                      & CPU  & 512.87ms & 6.00ms (1.17\%) & 1.90ms (0.37\%) & -1.48\% \\
 \hline
-\caption{Run times of the model solution program of the problem Modernizacja autostrady (mod) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured form the times of configuration without sandbox.}
+\caption{Run times of the model solution program of the problem Modernizacja autostrady (mod) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:mod_model_solution_runtimes}
 \end{longtable}
 \end{small}
 
-\subsubsection{Wycieczki (wyc)}
+\subsection{Wycieczki (wyc)}
 
 \begin{small}
 \begin{longtable}{|l|c|c|r|r|r|r|}
@@ -3000,121 +3120,11 @@ From the measurements we see that on large tests (those with high runtime) the s
                           & \multirow{2}{*}{yes} & real & 344.04ms & 1.45ms (0.42\%) & 0.46ms (0.13\%) & 7.12\% \\*
                           &                      & CPU  & 342.77ms & 1.42ms (0.42\%) & 0.45ms (0.13\%) & 8.27\% \\
 \hline
-\caption{Run times of the model solution program of the problem Wycieczki (wyc) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured form the times of configuration without sandbox.}
+\caption{Run times of the model solution program of the problem Wycieczki (wyc) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:wyc_model_solution_runtimes}
 \end{longtable}
 \end{small}
 
-\section{Short-running programs and comparison with nsjail}
-
-An example of a short-running program is \texttt{/bin/true} --- we will use it in the benchmark. The metric we will use is the round-trip time of the request to sandbox a program. The Table \ref{table:bin_true_times} contains the measurements of the time to handle request to run the \texttt{/bin/true} program, without the sandbox, with sandbox and using nsjail. From the data we see that the nsjail is more than 4 times slower, while at the same time it does not spawn a separate PID 1 process and does not provide the runtime statistics. Our sandbox, while 2.39 times slower, still allows for hundreds requests per second --- and that was the goal of the thesis.
-
-\begin{small}
-\begin{longtable}{|l|r|r|r|r|}
-\hline
-\makecell{Sandbox} & \makecell{Mean time} & \makecell{Std. dev.} & \makecell{Std. err.\\on the mean} & \makecell{Slowdown} \\
-\hline
-no sandbox   & 0.893ms & 0.409ms (45.80\%) & 0.013ms (1.45\%) & 1x \\
-sandbox      & 2.348ms & 0.768ms (32.71\%) & 0.024ms (1.03\%) & 2.39x \\
-nsjail       & 10.393ms & 1.327ms (12.77\%) & 0.042ms (0.40\%) & 10.57x \\
-\hline
-\caption{Statistics for each row were collected from 1000 runs. Each row contains real time it took to handle request to sandbox the \texttt{/bin/true} program. While the slowdown of the sandbox is huge (more than twofold), it still allows for hundreds of runs per second and that was the goal of this thesis, whereas nsjail is more than 4 times slower than our sandbox.}
-\label{table:bin_true_times}
-\end{longtable}
-\end{small}
-
-
-\subsection{Comparison with nsjail}
-
-nsjail does not provide any means to handle more than one program in one execution. This means that one execution of the nsjail program equals one execution of the sandboxed program. This way, the nsjail program cannot share resources e.g. namespaces between the runs and therefore should be slower than our solution. Our solution executes the server program once and it can handle more than one request for secure execution of a program therefore it can and shares the resources. This way, our solution has lower overhead per one execution of the sandboxed program.
-Therefore the request handle time is drastically lower than for our sandbox. This is presented in Table \ref{table:bin_true_times}. The nsjail can handle around 4.4 times less requests than our solution in a given time. Moreover, our sandbox allows easy collection of the runtime statistics that nsjail is incapable of doing. Command used for benchmarking the nsjail: \texttt{/usr/bin/nsjail -q -Mo -{}-chroot / -{}-use\_cgroupv2 -{}- /bin/true}.
-
-\section{Impact of some optimizations}
-
-From the Table \ref{table:optimization_impact} it is clear that unsharing namespaces once instead of for every request has positive impact on the performance. The most meaningful was the network namespace that if unshared for every request resulted in 26\% performance degradation.
-
-\begin{small}
-\begin{longtable}{|l|r|r|r|r|}
-\hline
-\multicolumn{1}{|c|}{Benchmark} & \makecell{Mean\\request time} & Std. dev. & Std. err. on the mean & \multicolumn{1}{c|}{Slowdown} \\
-\hline
-Baseline                                              & 2.348ms & 0.768ms (32.71\%) & 0.024ms (1.03\%) & 0.00\% \\
-\hline
-\makecell{New network namespace \\ for each request}  & 2.970ms & 0.856ms (28.83\%) & 0.027ms (0.91\%) & 26.49\% \\
-\hline
-\makecell{New IPC namespace \\ for each request}      & 2.522ms & 0.782ms (31.02\%) & 0.025ms (0.98\%) & 7.41\% \\
-\hline
-\makecell{New UTS namespace \\ for each request}      & 2.478ms & 0.771ms (31.14\%) & 0.024ms (0.98\%) & 5.54\% \\
-\hline
-\caption{Statistics for each row were collected from 1000 runs. Each row contains real time it took to handle request to sandbox the \texttt{/bin/true} program.}
-\label{table:optimization_impact}
-\end{longtable}
-\end{small}
-
-\iffalse
-\section{1'000'000 syscall benchmark}
-
-A test program that performs 1\,000\,000 times a \texttt{lseek} syscall was used to simulate a program that performs a very large number of syscalls. In table \ref{table:million_lseek} are listed the time measurements. From the data, we see that running an executable inside sandbox has negligible impact on its runtime. Adding a seccomp BPF filter makes a slowdown that is below 4\% for this synthetic, syscall-intensive program. However, this benchmark is artificial because a typical tested program preforms normally at most tens of thousands syscalls and the seccomp overhead affects only the syscalls, so the real overhead will be lower.
-
-\begin{table}[h]
-\centering
-\begin{tabular}{|l|c|c|c|r|}
-\hline
-\multicolumn{1}{|c|}{Benchmark} & Mean time & Std. dev. & Std. err. on the mean & \multicolumn{1}{c|}{Slowdown} \\
-\hline
-No sandbox          & 597.21 ms & 1.29 ms (0.22\%) & 0.38 ms (0.06\%) & 0.00\% \\
-In sandbox          & 598.81 ms & 3.62 ms (0.61\%) & 1.14 ms (0.19\%) & 0.27\% \\
-In sandbox with BPF & 620.17 ms & 3.69 ms (0.60\%) & 1.17 ms (0.19\%) & 3.84\% \\
-\hline
-\end{tabular}
-\caption{The statistics were collected from 10 runs. The three rows show the program runtime since before \texttt{execve} to \texttt{waitpid} in the parent process. The first row without the sandbox, the second inside sandbox and the third inside sandbox with a BPF filter allowing 249 common syscalls.}
-\label{table:million_lseek}
-\end{table}
-
-\fi
-
-\section{Conclusion}
-
-Although the slowdown of the compilation of around 24\% and run time of the solution program of around 20\%, it is acceptable. More importantly, the overhead of running the tested program is more often negligible than not. Experiments showed that most of the compilation overhead is caused by BPF filters. The sandbox allows handling hundreds of requests per second. The concurrent solution --- nsjail is 4.4 times slower than ours. All in all, the goal of the thesis was achieved.
-
-% \chapter{Use Cases and Applications}\label{chapter:use_cases}
-
-\chapter{Conclusion}\label{chapter:conclusion}
-
-The sandbox was successfully designed, implemented and integrated with the online judge platform. A new language suites --- for Python and Rust were implemented using it.
-
-The new sandbox is optimized for running short-running programs and the overhead of running one in below 3 ms. That is 4 times lower than the closest solution --- nsjail. The sandbox is versatile enough to sandbox simple user programs as well as the full compilation. The overhead of running the program in the sandbox is below 24\% and often it is even lower than 0\%.
-
-The sandbox allows limiting resources and collects the run-time statistics of the executed program. This is a very unique feature of our solution.
-
-Furthermore, our sandbox does not require any privileges --- it can be used by any unprivileged user.
-
-All in all, the goal of the thesis was achieved although with higher overheads than anticipated. However, the overhead is within the acceptable margin.
-
-\section{Future work}\label{chapter:future_work}
-
-There are several aspects that can be worked upon. Each of a different degree of difficulty.
-
-\subsection{CPU affinity}
-
-Now, there is no support for setting CPU affinity mask for the request. Such support should be straightforward to add. It could reduce time variability of subsequent runs of the tested program \cite{merry2010performance}.
-
-\subsection{Adding support for networking}
-
-Although disabling the networking altogether is secure, adding a loopback device can be beneficial for some applications. Adding other devices requires superuser privileges and is out-of-scope for the current solution, but can be done with a \texttt{setuid} helper binary like in Firejail \cite{netblue30/firejail}.
-
-\subsection{Rust frontend}
-
-Implementing the client side (a frontend) in Rust language should ease the adoption of the sandbox. Rust is an efficient and secure programming language. In Rust a simple cargo package with the frontend could be implemented and published to the world. Such a package would be easy to use and allow easy and quick experimenting with the sandbox.
-
-\subsection{Further experimentation}
-
-Investigating from where the speedups come from and why there are such big slowdowns despite BPF being disabled are what can be improved upon. Such knowledge would provide valuable insight into the situation.
-
-\section{Acknowledgements}
-
-We would like to thank Janina Minter-Daszkiewicz for relentless and valuable insight during the writing of the thesis.
-
-\printbibliography
+\end{appendices}
 
 \end{document}
