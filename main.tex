@@ -148,7 +148,8 @@
 \klasyfikacja{Security and privacy -- Systems security -- Operating systems security}
 
 % Słowa kluczowe:
-\keywords{sandboxing, security, Linux, secure execution, arbitrary code execution, online judging system, Linux namespaces, cgroups, seccomp}
+\keywords{sandboxing, security, Linux, secure execution, arbitrary code execution, online judging system, Linux namespaces, cgroups, seccomp, 
+programming competitions}
 
 % Tu jest dobre miejsce na Twoje własne makra i~środowiska:
 % \newtheorem{defi}{Definicja}[section]
@@ -164,7 +165,7 @@
 \begin{abstract}
 Secure execution environments evolved over time and are commonplace these days. The relatively recent features of the Linux kernel allow the creation of simple yet effective and efficient secure environments. We introduce a new sandbox for unprivileged users on Linux that requires no kernel modifications. Its primary use case is an online judge platform for carrying out algorithmic and programming contests. We use Linux namespaces for resource isolation, cgroups for resource limiting, and seccomp for restricting the allowed system calls.
 
-The sandbox is versatile enough to securely run complex multi-process programs like the C++ compiler. It is optimized to run short-running programs with minimal overhead. The simplest short-running programs take below 3 ms to execute in our configuration, more than 4 times faster than concurrent solutions.
+The sandbox is versatile enough to securely run complex multi-process programs like the C++ compiler. It is optimized to run short-running programs with minimal overhead. The simplest short-running programs take below 3 ms to execute in our configuration, more than 4 times faster than competitive solutions.
 
 The implementation uses client-server architecture to optimize for running short-running programs. It allows fine-grained configuration of the Linux namespaces, and resource limits, while providing the execution statistics of real and CPU time and the peak memory usage.
 
@@ -281,6 +282,9 @@ MO sandbox \cite{marevs2007perspectives, kolstad2009infrastructure} allows only 
 
 \subsubsection{MBOX}
 MBOX \cite{kim2013practical} requires no superuser privileges. It makes use of seccomp BPF system call filtering to restrict allowed syscalls. BPF filtering is effective only for non-indirect arguments. To address this issue, the installed BPF filter notifies the \texttt{ptrace} monitoring process if further argument inspection is necessary to make a decision. To avoid TOCTOU problem \cite{cwe_toctou}, the MBOX allocates a read-only page to which it copies the indirect arguments before inspecting them and rewrites the syscall to use the rewritten arguments. The copied arguments are protected against modification because changing page access permissions is impossible without a syscall.
+
+\subsubsection{SIO2jail}
+SIO2jail \cite{sio2jail} uses \texttt{ptrace} to listen on \texttt{perf} \cite{perf} performance counters. It supports only single-threaded applications. The \texttt{perf} performance counters are used to compute the number of executed instructions by the program. Polish Olympiad in Informatics (POI) uses SIO2jail to measure running time of the users' solutions in number of executed instructions. As far as we are aware, this is unique to POI, since all of the world uses CPU time. The drawback of this method is that REP instructions are counted as 1, no matter how many times they are repeated by the processor. SIO2jail requires no root privileges after access performance counters is enabled in the system for all users.
 
 \subsection{Using Linux namespaces}
 
@@ -1001,7 +1005,7 @@ In sandbox with BPF & 620.17 ms & 3.69 ms (0.60\%) & 1.17 ms (0.19\%) & 3.84\% \
 
 \section{Conclusion}
 
-Although the slowdown of the compilation of around 24\% and run time of the solution program of around 20\% is noticeable, it is acceptable. More importantly, the overhead of running the tested program is more often negligible than not. Experiments showed that most of the compilation overhead is caused by BPF filters, but they are required for the security of the sandbox. The sandbox allows handling hundreds of requests per second. The concurrent solution --- nsjail is 4.4 times slower than ours. All in all, the goal of the thesis was achieved.
+Although the slowdown of the compilation of around 24\% and run time of the solution program of around 20\% is noticeable, it is acceptable. More importantly, the overhead of running the tested program is more often negligible than not. Experiments showed that most of the compilation overhead is caused by BPF filters, but they are required for the security of the sandbox. The sandbox allows handling hundreds of requests per second. The competitive solution --- nsjail is 4.4 times slower than ours. All in all, the goal of the thesis was achieved.
 
 \chapter{Conclusion}\label{chapter:conclusion}
 
