@@ -70,7 +70,7 @@
 % \usepackage{caption} % makes clicking figure \ref navigate to the top of the figure instead of the caption (has some bug which makes the ref to the first figure in the appendix refer to Page 1, and others to be shifted by 1)
 % End hrefs
 
-\usepackage[dateabbrev=false,date=iso,urldate=iso]{biblatex}
+\usepackage[backend=biber, dateabbrev=false,date=iso,urldate=iso]{biblatex}
 \usepackage{csquotes}
 
 % Tables
@@ -1056,9 +1056,10 @@ Investigating from where the speedups come from and why there are such big slowd
 
 We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable insight during the writing of the thesis.
 
+% Need to manualy specify the section and TOC line because it does not work automatically
+\chapter*{Bibliography}
 \addcontentsline{toc}{chapter}{Bibliography}
-\printbibliography
-
+\printbibliography[heading=none]
 
 \begin{appendices}
 
