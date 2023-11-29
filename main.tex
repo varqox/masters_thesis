@@ -22,7 +22,7 @@
 \usepackage{amsmath}
 % Diagrams
 \usepackage{tikz}
-\usetikzlibrary{calc,positioning,arrows.meta,shapes,fit,backgrounds}
+\usetikzlibrary{calc,positioning,arrows.meta,shapes,fit,backgrounds,spy}
 
 % Plots
 \usepackage{pgfplots}
@@ -67,7 +67,7 @@
     citecolor=blue,
     urlcolor=magenta,
 }
-% \usepackage{caption} % makes clicking figure \ref navigate to the top of the figure instead of the caption (has some bug which makes the ref to the first figure in the appendix refer to Page 1, and others to be shifted by 1)
+% \usepackage{caption} % makes clicking figure~\ref navigate to the top of the figure instead of the caption (has some bug which makes the ref to the first figure in the appendix refer to Page 1, and others to be shifted by 1)
 % End hrefs
 
 \usepackage[backend=biber, dateabbrev=false,date=iso,urldate=iso]{biblatex}
@@ -75,6 +75,7 @@
 
 % Tables
 \usepackage{longtable}
+\setlength{\LTcapwidth}{\textwidth} % make caption below longtable have the \textwidth
 \usepackage{makecell}
 \usepackage{multirow}
 % Appendices
@@ -187,7 +188,7 @@ The features of Linux allow the creation of simple yet effective and efficient s
 
 In this thesis, the most important application of sandboxing are online judge systems. Online judge systems have beneficial role in programming education and competitive programming. They allow testing user-provided solution to a specific problem. The solution is run on a predefined test cases in order to check if it is valid. In such platforms isolating the compilation and running of the tested program is essential to provide security and robustness of the platform itself.
 
-Historically, isolation techniques evolved together with the online judge platforms. The most primitive (yet insecure) was usage of \texttt{chroot(2)} \cite{prevelakis2001sandboxing} to restrict access to part of the filesystem. To increase isolation virtual machines were used \cite{5635141}. Later, containerization became a new way to provide isolation \cite{marevs2012new, SPACEK20151665}.
+Historically, isolation techniques evolved together with the online judge platforms. The most primitive (yet insecure) was usage of \texttt{chroot(2)}~\cite{prevelakis2001sandboxing} to restrict access to part of the filesystem. To increase isolation virtual machines were used~\cite{5635141}. Later, containerization became a new way to provide isolation~\cite{marevs2012new, SPACEK20151665}.
 
 Online education platforms greatly facilitate teaching and learning programming. They provide quick feedback on the correctness of the code the user submits. They are used in schools and universities and provide great learning opportunities for all.
 
@@ -195,7 +196,7 @@ Moreover, a versatile sandbox has applications outside online judging platforms.
 
 \section{Goal of the thesis}
 
-The goal of the thesis is to design, implement and integrate a new sandbox for the Sim project \cite{sim_project}. The Sim project is an online platform for preparing people for and carrying out algorithmic contests. The project started in 2012 and is developed by me since the beginning. It is used at the XIII High School in Szczecin and programming camps to teach young people programming and algorithms. It has an online judge with a sandbox specially developed for this use case. Over the years the sandbox became a limitation. It only allows running a single-threaded statically linked executable of programs written in C, C++ or Pascal. The new sandbox will allow supporting more programming languages and improve security of the tested program compilation stage.
+The goal of the thesis is to design, implement and integrate a new sandbox for the Sim project~\cite{sim_project}. The Sim project is an online platform for preparing people for and carrying out algorithmic contests. The project started in 2012 and is developed by me since the beginning. It is used at the XIII High School in Szczecin and programming camps to teach young people programming and algorithms. It has an online judge with a sandbox specially developed for this use case. Over the years the sandbox became a limitation. It only allows running a single-threaded statically linked executable of programs written in C, C++ or Pascal. The new sandbox will allow supporting more programming languages and improve security of the tested program compilation stage.
 
 \subsection{Requirements}
 
@@ -203,7 +204,7 @@ The new sandbox needs to be optimized for running short-running programs as well
 
 The new sandbox needs to be versatile. It will be used to secure the compilation of the tested programs as well as running of the tested programs. Compilation is a complicated process that involves parsing, translating, optimizing and linking the final program. For languages like C, C++ and Rust it involves running several executables in coordination e.g. compiler and linker i.e. more than one process at a time --- the sandbox needs to support that.
 
-Sandboxing needs to have a low overhead. Apart from small test where a tested program runs quickly (a matter of milliseconds), almost always the tested program is run on big test cases, where it may need several seconds for it to solve the problem. Increasing this time as little as possible while the tested program is running inside the sandbox is one of the primary objectives.
+Sandboxing needs to have a low overhead. Apart from small tests where a tested program runs quickly (a matter of milliseconds), almost always the tested program is run on big test cases, where it may need several seconds to solve the problem. Increasing this time as little as possible while the tested program is running inside the sandbox is one of the primary objectives.
 
 It often requires running several executables e.g. compiler and linker, so allowing a single process inside sandbox is not enough. Sandboxing the tested program is simpler, because it is a single process. But since it is often short-running, the overhead needs to be minimal.
 
@@ -211,15 +212,15 @@ The sandbox needs to allow limiting resources. Real time, CPU time, memory -- th
 
 The sandbox needs to account resource usage. For every test, the user is presented with consumed memory and CPU time by their solution. The sandbox needs to provide this information.
 
-The last requirement is the sandbox will not require any privileges. There is a tool called Sip \cite{sip} for preparing the problem packages for the Sim platform. One of the purposes of the tool is to run the solutions inside the same secure environment as on the Sim platform. The user should not need any privileges to run this tool, so the sandbox should not require them either.
+The last requirement is the sandbox will not require any privileges. There is a tool called Sip~\cite{sip} for preparing the problem packages for the Sim platform. One of the purposes of the tool is to run the solutions inside the same secure environment as on the Sim platform. The user should not need any privileges to run this tool, so the sandbox should not require them either.
 
 \subsection{Existing solutions}
 
-Approaches to form a secure execution environments differ. One of them is virtualization or emulation e.g. QEMU \cite{qemu_website} and KVM \cite{kvm_website}, VirtualBox \cite{virtualbox_website}, VMWare Workstation \cite{vmware_workstation_website}. Although powerful and effective, they come with an enormous overhead i.e. booting up an entire operating system. Moreover, emulation noticeably slows down the runtime of an emulated application, rendering such solutions inapplicable.
+Approaches to form a secure execution environments differ. One of them is virtualization or emulation e.g. QEMU~\cite{qemu_website} and KVM~\cite{kvm_website}, VirtualBox~\cite{virtualbox_website}, VMWare Workstation~\cite{vmware_workstation_website}. Although powerful and effective, they come with an enormous overhead i.e. booting up an entire operating system. Moreover, emulation noticeably slows down the runtime of an emulated application, rendering such solutions inapplicable.
 
-Containers provide much lower overhead: setup of an order of milliseconds and negligible runtime overhead. But, Docker \cite{Merkel:2014:DLL:2600239.2600241}, LXC \cite{conf/cisis/BeserraMEBSF15} require root privileges to create a container. systemd-nspawn \cite{systemd_nspawn} requires root privileges to run.
+Containers provide much lower overhead: setup of an order of milliseconds and negligible runtime overhead. But, Docker~\cite{Merkel:2014:DLL:2600239.2600241}, LXC~\cite{conf/cisis/BeserraMEBSF15} require root privileges to create a container. systemd-nspawn~\cite{systemd_nspawn} requires root privileges to run.
 
-Rootless containers are containers \cite{rootless_containers_rs} that can be created and run by an unprivileged user are the almost perfect solution to the problem. They provide almost all of the functionality of the normal containers but without the need to engage a privileged user. However, they often use setuid binaries and that is undesirable \cite{podman_rootless_containers_presentation}. Also they are not optimized to run sequences of short-running programs. In this thesis we will create a sandbox that uses the same techniques as rootless containers but will be optimized for running sequences of short-running programs.
+Rootless containers are containers~\cite{rootless_containers_rs} that can be created and run by an unprivileged user are the almost perfect solution to the problem. They provide almost all of the functionality of the normal containers but without the need to engage a privileged user. However, they often use setuid binaries and that is undesirable~\cite{podman_rootless_containers_presentation}. Also they are not optimized to run sequences of short-running programs. In this thesis we will create a sandbox that uses the same techniques as rootless containers but will be optimized for running sequences of short-running programs.
 
 % \section{Scope}
 
@@ -231,21 +232,21 @@ Rootless containers are containers \cite{rootless_containers_rs} that can be cre
 
 \section{Structure of the Thesis}
 
-Chapter \ref{chapter:problem_overview} contains overview of sandboxing techniques and existing implementations and comparative analysis of them. Details of design and architecture are described in Chapter \ref{chapter:design}. Implementation is described in Chapter \ref{chapter:implementation}. Chapter \ref{chapter:performance} contains performance evaluation of the final implementation and impact of some optimizations. Finally, Chapter \ref{chapter:conclusion} contains conclusions and suggestions for further work.
+Chapter~\ref{chapter:problem_overview} contains overview of sandboxing techniques and existing implementations and comparative analysis of them. Details of design and architecture are described in Chapter~\ref{chapter:design}. Implementation is described in Chapter~\ref{chapter:implementation}. Chapter~\ref{chapter:performance} contains performance evaluation of the final implementation and impact of some optimizations. Finally, Chapter~\ref{chapter:conclusion} contains conclusions and suggestions for further work. Appendix~\ref{appendix:tables_and_plots} contains tables and plots.
 
 \chapter{Problem overview}\label{chapter:problem_overview}
 
 \section{Overview of Sandboxing Techniques}
 
-During the first programming competitions, the human judges manually read and verified the source code of the contestants' solutions \cite{tochev2010validating}. Over time this became infeasible and gave birth to automatic judge systems.
+During the first programming competitions, the human judges manually read and verified the source code of the contestants' solutions~\cite{tochev2010validating}. Over time this became infeasible and gave birth to automatic judge systems.
 
 To prevent people from interfering with the normal workflow of the competition, e.g. Denial of Service Attack by exhausting memory resources, the automatic judge systems need a secure way to compile and execute a contest's solution. This is where sandboxes come into place.
 
-First sandboxes required modification of the OS kernel \cite{provos2003improving, garfinkel2004janus, garfinkel2004ostia, jana2011txbox, li2014minibox}. While they had little run-time overhead, some of them were limited to single-threaded applications \cite{merry2009using}.
+First sandboxes required modification of the OS kernel~\cite{provos2003improving, garfinkel2004janus, garfinkel2004ostia, jana2011txbox, li2014minibox}. While they had little run-time overhead, some of them were limited to single-threaded applications~\cite{merry2009using}.
 
-Later, as support for process tracing matured, \texttt{ptrace}-based sandboxes arose \cite{marevs2007perspectives, kolstad2009infrastructure, kim2013practical}. The problem with those solutions is the overhead that varies from around 75\% \cite{merry2010performance} to 160\% \cite{marevs2012new} for syscall-intensive programs. This overhead however, does not affect programming contest fairness much \cite{marevs2011fairness}. Supporting multi-threaded and multi-process programs while using \texttt{ptrace} is tricky, but possible \cite{kim2013practical}, because of Time of Check/Time of Use (TOCTOU) problem \cite{cwe_toctou}. \texttt{ptrace}-based sandbox needs to inspect syscall arguments. To do so it has to read them, but the multi-threaded or multi-process program can change the indirect argument after the reading but before the kernel uses the argument. This creates a dangerous race condition that has to be addressed.
+Later, as support for process tracing matured, \texttt{ptrace}-based sandboxes arose~\cite{marevs2007perspectives, kolstad2009infrastructure, kim2013practical}. The problem with those solutions is the overhead that varies from around 75\%~\cite{merry2010performance} to 160\%~\cite{marevs2012new} for syscall-intensive programs. This overhead however, does not affect programming contest fairness much~\cite{marevs2011fairness}. Supporting multi-threaded and multi-process programs while using \texttt{ptrace} is tricky, but possible~\cite{kim2013practical}, because of Time of Check/Time of Use (TOCTOU) problem~\cite{cwe_toctou}. \texttt{ptrace}-based sandbox needs to inspect syscall arguments. To do so it has to read them, but the multi-threaded or multi-process program can change the indirect argument after the reading but before the kernel uses the argument. This creates a dangerous race condition that has to be addressed.
 
-Finally, after the kernel support for containerization materialized, namespace and cgroup based sandboxes came into place \cite{marevs2012new, netblue30/firejail, raknes2016nsroot, google/nsjail, flatpak, SPACEK20151665}. Contrary to ptrace-based sandboxes, namespace-based sandboxes have negligible runtime overhead \cite{marevs2012new}. Moreover, they don't require modifications of the Linux kernel and work on major Linux distributions out of the box.
+Finally, after the kernel support for containerization materialized, namespace and cgroup based sandboxes came into place~\cite{marevs2012new, netblue30/firejail, raknes2016nsroot, google/nsjail, flatpak, SPACEK20151665}. Contrary to ptrace-based sandboxes, namespace-based sandboxes have negligible runtime overhead~\cite{marevs2012new}. Moreover, they don't require modifications of the Linux kernel and work on major Linux distributions out of the box.
 
 \section{Existing Implementations}
 
@@ -253,82 +254,82 @@ Finally, after the kernel support for containerization materialized, namespace a
 
 \subsubsection{Systrace}
 
-Systrace \cite{provos2003improving} intercepts all system calls in the kernel. It then decides if the syscall is safe by first checking a static list of safe syscalls. This step exists to reduce sandboxing performance overhead. If the syscall is not on the list, Systrace consults user space for a decision.
+Systrace~\cite{provos2003improving} intercepts all system calls in the kernel. It then decides if the syscall is safe by first checking a static list of safe syscalls. This step exists to reduce sandboxing performance overhead. If the syscall is not on the list, Systrace consults user space for a decision.
 
-The system avoids TOCTOU problem \cite{cwe_toctou} by copying syscall arguments to kernel memory before asking user space for a decision.
+The system avoids TOCTOU problem~\cite{cwe_toctou} by copying syscall arguments to kernel memory before asking user space for a decision.
 
 \subsubsection{Janus}
-Janus \cite{garfinkel2004janus} adds a module to extend Linux \texttt{ptrace} API. Policies are defined using configuration files. By default all syscalls are denied. The configuration directive refers to the policy module that provides the logic for deciding whether to allow a particular system call or not. For example, \texttt{path} module could be used to restrict IO on certain file paths.
+Janus~\cite{garfinkel2004janus} adds a module to extend Linux \texttt{ptrace} API. Policies are defined using configuration files. By default all syscalls are denied. The configuration directive refers to the policy module that provides the logic for deciding whether to allow a particular system call or not. For example, \texttt{path} module could be used to restrict IO on certain file paths.
 
 \subsubsection{Ostia}
-Ostia \cite{garfinkel2004ostia} instead of filtering system calls delegates them to an external agent that performs syscalls on behalf of the sandboxed process. Authors emphasize that such architecture simplifies the system and protects from TOCTOU problems \cite{cwe_toctou}.
+Ostia~\cite{garfinkel2004ostia} instead of filtering system calls delegates them to an external agent that performs syscalls on behalf of the sandboxed process. Authors emphasize that such architecture simplifies the system and protects from TOCTOU problems~\cite{cwe_toctou}.
 
 Ostia is implemented as two components: a small kernel module and a user space part. The module intercepts the syscall and copies its arguments via IPC link to the user space agent. The agent decides whether the call should be allowed, executes it and returns the results back over the IPC link. Worth noting is that not all syscalls have to be delegated~---~some can be always allowed while others always denied.
 
 \subsubsection{TxBox}
-TxBox \cite{jana2011txbox} introduces system-level transaction support. Impact of the untrusted insecure code is limited by rolling back the system state after the execution. This provides strong isolation and works with arbitrary executables but requires significant out-of-tree patches of the OS kernel.
+TxBox~\cite{jana2011txbox} introduces system-level transaction support. Impact of the untrusted insecure code is limited by rolling back the system state after the execution. This provides strong isolation and works with arbitrary executables but requires significant out-of-tree patches of the OS kernel.
 
 \subsubsection{MiniBox}
-MiniBox \cite{li2014minibox} is a two-way sandbox that protects operating system from the application as well as application from the operating system. A modified version of TrustVisor \cite{mccune2010trustvisor} hypervisor runs OS and sandboxed application separately in a Mutually Isolated Execution Environment. The hypervisor is the only communication channel between the isolated application and the regular OS. This way application is protected from the malicious operating system. To protect the OS from the application, MiniBox uses Software Fault Isolation techniques from NaCl \cite{yee2010native}.
+MiniBox~\cite{li2014minibox} is a two-way sandbox that protects operating system from the application as well as application from the operating system. A modified version of TrustVisor~\cite{mccune2010trustvisor} hypervisor runs OS and sandboxed application separately in a Mutually Isolated Execution Environment. The hypervisor is the only communication channel between the isolated application and the regular OS. This way application is protected from the malicious operating system. To protect the OS from the application, MiniBox uses Software Fault Isolation techniques from NaCl~\cite{yee2010native}.
 
 \subsubsection{SACO sandbox}
 
-South African Computer Olympiad (SACO) sandbox \cite{merry2009using} inserts a custom kernel module that hooks up to Linux Security Module infrastructure. Although it has negligible time and memory overhead, it only supports single-threaded programs.
+South African Computer Olympiad (SACO) sandbox~\cite{merry2009using} inserts a custom kernel module that hooks up to Linux Security Module infrastructure. Although it has negligible time and memory overhead, it only supports single-threaded programs.
 
 \subsection{\texttt{ptrace}-based}
 
 \subsubsection{MO sandbox}
-MO sandbox \cite{marevs2007perspectives, kolstad2009infrastructure} allows only single-threaded programs. It simply inspects arguments using \texttt{ptrace} and uses \texttt{setrlimit} \cite{man_getrlimit_setrlimit_prlimit} to limit resources. It is used by USA Computer Olympiad (USACO).
+MO sandbox~\cite{marevs2007perspectives, kolstad2009infrastructure} allows only single-threaded programs. It simply inspects arguments using \texttt{ptrace} and uses \texttt{setrlimit}~\cite{man_getrlimit_setrlimit_prlimit} to limit resources. It is used by USA Computer Olympiad (USACO).
 
 \subsubsection{MBOX}
-MBOX \cite{kim2013practical} requires no superuser privileges. It makes use of seccomp BPF system call filtering to restrict allowed syscalls. BPF filtering is effective only for non-indirect arguments. To address this issue, the installed BPF filter notifies the \texttt{ptrace} monitoring process if further argument inspection is necessary to make a decision. To avoid TOCTOU problem \cite{cwe_toctou}, the MBOX allocates a read-only page to which it copies the indirect arguments before inspecting them and rewrites the syscall to use the rewritten arguments. The copied arguments are protected against modification because changing page access permissions is impossible without a syscall.
+MBOX~\cite{kim2013practical} requires no superuser privileges. It makes use of seccomp BPF system call filtering to restrict allowed syscalls. BPF filtering is effective only for non-indirect arguments. To address this issue, the installed BPF filter notifies the \texttt{ptrace} monitoring process if further argument inspection is necessary to make a decision. To avoid TOCTOU problem~\cite{cwe_toctou}, the MBOX allocates a read-only page to which it copies the indirect arguments before inspecting them and rewrites the syscall to use the rewritten arguments. The copied arguments are protected against modification because changing page access permissions is impossible without a syscall.
 
 \subsubsection{SIO2jail}
-SIO2jail \cite{sio2jail} uses \texttt{ptrace} to listen on \texttt{perf} \cite{perf} performance counters. It supports only single-threaded applications. The \texttt{perf} performance counters are used to compute the number of executed instructions by the program. Polish Olympiad in Informatics (POI) uses SIO2jail to measure running time of the users' solutions in number of executed instructions. As far as we are aware, this is unique to POI, since all of the world uses CPU time. The drawback of this method is that REP instructions are counted as 1, no matter how many times they are repeated by the processor. SIO2jail requires no root privileges after access performance counters is enabled in the system for all users.
+SIO2jail~\cite{sio2jail} uses \texttt{ptrace} to listen on \texttt{perf}~\cite{perf} performance counters. The \texttt{perf} performance counters are used to compute the number of executed instructions by the program. Polish Olympiad in Informatics (POI) uses SIO2jail to measure running time of the users' solutions in number of executed instructions. As far as we are aware, this is unique to POI, since all of the world uses CPU time. The drawback of this method is that REP instructions are counted as 1, no matter how many times they are repeated by the processor. SIO2jail requires no superuser privileges after access to performance counters is enabled in the system for all users.
 
 \subsection{Using Linux namespaces}
 
 \subsubsection{Firejail}
-Firejail \cite{netblue30/firejail} uses seccomp BPF system call filtering and mount namespaces to restrict filesystem access. Similarly it uses process namespaces to limit view of running processes and network namespaces to restrict access to network devices. However, Firejail uses a \texttt{setuid} \cite{man_setuid} helper binary to achieve that. It allows resource limiting through \texttt{prlimit} \cite{man_getrlimit_setrlimit_prlimit}.
+Firejail~\cite{netblue30/firejail} uses seccomp BPF system call filtering and mount namespaces to restrict filesystem access. Similarly it uses process namespaces to limit view of running processes and network namespaces to restrict access to network devices. However, Firejail uses a \texttt{setuid}~\cite{man_setuid} helper binary to achieve that. It allows resource limiting through \texttt{prlimit}~\cite{man_getrlimit_setrlimit_prlimit}.
 
 \subsubsection{nsjail} \label{subsubsection:nsjail}
-nsjail \cite{google/nsjail} uses Linux namespaces, seccomp BPF system call filtering, \texttt{setrlimit} \cite{man_getrlimit_setrlimit_prlimit} and cgroups to limit resources. It does not require superuser privileges. However, it is not optimized for running short-running programs. Also, it does not provide statistics of the run.
+nsjail~\cite{google/nsjail} uses Linux namespaces, seccomp BPF system call filtering, \texttt{setrlimit}~\cite{man_getrlimit_setrlimit_prlimit} and cgroups to limit resources. It does not require superuser privileges. However, it is not optimized for running short-running programs. Also, it does not provide statistics of the run.
 
 \subsubsection{nsroot}
-nsroot \cite{raknes2016nsroot} does not support resource limiting. It only makes use of Linux namespaces to restrict view of the file system, IPC and network devices.
+nsroot~\cite{raknes2016nsroot} does not support resource limiting. It only makes use of Linux namespaces to restrict view of the file system, IPC and network devices.
 
 \subsubsection{Flatpak}
-Flatpak \cite{flatpak}, previously xdg-app, is a software packaging and sandboxing tool. Internally, it uses Bubblewrap sandbox. The Bubblewrap \cite{bubblewrap} is a \texttt{setuid} \cite{man_setuid} program that uses Linux namespaces and seccomp filters.
+Flatpak~\cite{flatpak}, previously xdg-app, is a software packaging and sandboxing tool. Internally, it uses Bubblewrap sandbox. The Bubblewrap~\cite{bubblewrap} is a \texttt{setuid}~\cite{man_setuid} program that uses Linux namespaces and seccomp filters.
 
 \subsubsection{New Contest Sandbox}
-New Contest Sandbox \cite{marevs2012new} uses Linux namespaces and cgroups but not seccomp filters. It is used by Moe modular contest system (2012) \cite{marevs2012new}. Linux namespaces and cgroups have negligible overhead compared to \texttt{ptrace}.
+New Contest Sandbox~\cite{marevs2012new} uses Linux namespaces and cgroups but not seccomp filters. It is used by Moe modular contest system (2012)~\cite{marevs2012new}. Linux namespaces and cgroups have negligible overhead compared to \texttt{ptrace}.
 
 \subsubsection{APAC}
-APAC (Automatic Programming Assignment Checker) \cite{SPACEK20151665} uses Docker for sandboxing. It sets up a container for each run. Docker uses runC under the hood. While runtime overhead of Docker is low, the setup phase is primary source of overhead for short-running programs.
+APAC (Automatic Programming Assignment Checker)~\cite{SPACEK20151665} uses Docker for sandboxing. It sets up a container for each run. Docker uses runC under the hood. While runtime overhead of Docker is low, the setup phase is primary source of overhead for short-running programs.
 
 \subsubsection{runC}
-runC \cite{cochak2021runc} uses the same features of Linux kernel as nsjail. However, configuration is stored as files instead of passed as command-line arguments. It has a special \texttt{rootless} mode which does not require superuser privileges. Given all of the above however, it is not optimized for running short-running programs. runC is used internally by Docker.
+runC~\cite{cochak2021runc} uses the same features of Linux kernel as nsjail. However, configuration is stored as files instead of passed as command-line arguments. It has a special \texttt{rootless} mode which does not require superuser privileges. Given all of the above however, it is not optimized for running short-running programs. runC is used internally by Docker.
 
 \subsection{Other}
 
 \subsubsection{Google Native Client}
-Native Client (NaCl) \cite{yee2010native} uses static analysis and Software Fault Isolation. After the static analysis, the program runs at native speed but requires recompilation with special compiler and libraries. NaCl only works for x86 architecture.
+Native Client (NaCl)~\cite{yee2010native} uses static analysis and Software Fault Isolation. After the static analysis, the program runs at native speed but requires recompilation with special compiler and libraries. NaCl only works for x86 architecture.
 
 \section{Conclusion}
 
-Many sandboxing solutions exist. From all of the above, closest to our requirements is nsjail (see Section \ref{subsubsection:nsjail}). However, it is not optimised for running short-running programs. In fact, none of the above solutions is optimised to run hundreds of short-running programs per second.
+Many sandboxing solutions exist. From all of the above, closest to our requirements is nsjail (see Section~\ref{subsubsection:nsjail}). However, it is not optimised for running short-running programs. In fact, none of the above solutions is optimised to run hundreds of short-running programs per second.
 
 Considering the similarities of nsjail and our solution, in the performance analysis we will compare our sandbox to nsjail sandbox.
 
-% Overhead caused by context switches can be minimized by restricting the process or group of processes to a separate cpuset \cite{merry2010performance}.
+% Overhead caused by context switches can be minimized by restricting the process or group of processes to a separate cpuset~\cite{merry2010performance}.
 
 \chapter{Design and Architecture}\label{chapter:design}
 
 \section{Client-server architecture}
 
-From the start the sandbox was based on the client-server architecture. This was the choice to minimize process cloning overhead \cite{redis-latency-generated-by-fork}, since it is a costly operation and happens for every sandboxing request. fork/clone needs to clone the whole address space of the process and the client process could have a large address space. Server process that is executed from a separate executable has a minimal required address space size therefore the cloning overhead is minimal for every request. Moreover, this architecture easily and safely allows sharing as much work as possible between the sandboxing requests which is the key to low overhead of running short-running programs.
+From the start the sandbox was based on the client-server architecture. This was the choice to minimize process cloning overhead~\cite{redis-latency-generated-by-fork}, since it is a costly operation and happens for every sandboxing request. fork/clone needs to clone the whole address space of the process and the client process could have a large address space. Server process that is executed from a separate executable has a minimal required address space size therefore the cloning overhead is minimal for every request. Moreover, this architecture easily and safely allows sharing as much work as possible between the sandboxing requests which is the key to low overhead of running short-running programs.
 
-The client spawns the sandboxing server and sends sandboxing requests via UNIX domain socket to the server. This is illustrated on Figure \ref{fig:server_waits_for_request}. The request contains executable, arguments, namespace configuration, resource limits, seccomp BPF filters and a pipe through which the result will be sent back.
+The client spawns the sandboxing server and sends sandboxing requests via UNIX domain socket to the server. This is illustrated on Figure~\ref{fig:server_waits_for_request}. The request contains executable, arguments, namespace configuration, resource limits, seccomp BPF filters and a pipe through which the result will be sent back.
 
 At startup, the server creates cgroup hierarchy and some namespaces so that they won't have to be created later or their creation will be faster. Other utilities are also setup here to do it once instead of for every request. Then it starts accepting requests.
 
@@ -366,11 +367,11 @@ At startup, the server creates cgroup hierarchy and some namespaces so that they
 For each request, the server process (aka supervisor) spawns the PID~1 process of the new PID namespace. Then the init process setups namespaces and some of the resource limits. Finally the PID~1 process spawns the tracee process that finishes configuration and executes the requested executable. So for each sandboxing request we spawn exactly 2 processes. However, the executed program can spawn new processes --- each of them is referred to as a "tracee process". The PID~1 process is necessary for a couple of reasons:
 \begin{itemize}
     \item It reaps the zombie processes in the tracee PID namespace.
-    \item It allows locking mount-points in the mount namespace. The tracee process is spawned in a new user and mount namespace. Mounts are performed by the PID~1 process, therefore all mounts become locked together and cannot be individually unmounted by the tracee \cite{man_mount_namespaces}. These mounts cannot be performed by the supervisor process instead, because it would alter the mount namespace for subsequent requests.
+    \item It allows locking mount-points in the mount namespace. The tracee process is spawned in a new user and mount namespace. Mounts are performed by the PID~1 process, therefore all mounts become locked together and cannot be individually unmounted by the tracee~\cite{man_mount_namespaces}. These mounts cannot be performed by the supervisor process instead, because it would alter the mount namespace for subsequent requests.
     \item Inside a PID namespace, sending signals to the PID~1 process is allowed only for signals that the PID~1 process installed signal handler for. This could change the behavior for some programs, therefore a helper PID~1 process is needed.
 \end{itemize}
 
-This is shown on Figure \ref{fig:server_handles_request_after_execve}.
+This is shown on Figure~\ref{fig:server_handles_request_after_execve}.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
@@ -476,7 +477,7 @@ The tracee process creates the following namespaces:
     \item user namespace --- in order to create other namespaces and hide user ID and group ID and lock the mount tree,
     \item mount namespace --- in order to lock the mount tree created by PID~1 process.
 \end{itemize}
-The listed namespaces hierarchy is illustrated on Figure \ref{fig:server_namespaces}.
+The listed namespaces hierarchy is illustrated on Figure~\ref{fig:server_namespaces}.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
@@ -543,9 +544,9 @@ The listed namespaces hierarchy is illustrated on Figure \ref{fig:server_namespa
 
 \section{Inter-process communication}
 
-The client sends requests via UNIX domain socket to the supervisor process. The results are sent via a pipe attached to the request. The pipe is attached to the request as a file descriptor using \texttt{SCM\_RIGHTS} control message \cite{man_unix}.
+The client sends requests via UNIX domain socket to the supervisor process. The results are sent via a pipe attached to the request. The pipe is attached to the request as a file descriptor using \texttt{SCM\_RIGHTS} control message~\cite{man_unix}.
 
-The supervisor, the PID~1 and the tracee processes communicate via shared anonymous memory page. Figure \ref{fig:server_handles_request_before_execveat} illustrates this communication. Such communication requires no syscalls, is fast and reliable. This page is automatically unmapped upon \texttt{execveat} syscall \cite{man_execveat} in the tracee process, so it is protected from the tracee access.
+The supervisor, the PID~1 and the tracee processes communicate via shared anonymous memory page. Figure~\ref{fig:server_handles_request_before_execveat} illustrates this communication. Such communication requires no syscalls, is fast and reliable. This page is automatically unmapped upon \texttt{execveat} syscall~\cite{man_execveat} in the tracee process, so it is protected from the tracee access.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
@@ -603,7 +604,7 @@ Client-server architecture allows time-performance optimizations. Furthermore, i
 
 \chapter{Implementation}\label{chapter:implementation}
 
-The project is written in C++, as it is a low-overhead, low-level language, but more convenient than C. Git is used as a Version Control System to track incremental implementation. Invaluable tool used during development was \texttt{strace} \cite{strace}. It allowed easy inspection of system calls and their return values without any modification to the source code.
+The project is written in C++, as it is a low-overhead, low-level language, but more convenient than C. Git is used as a Version Control System to track incremental implementation. Invaluable tool used during development was \texttt{strace}~\cite{strace}. It allowed easy inspection of system calls and their return values without any modification to the source code.
 
 \section{Interface}
 
@@ -635,7 +636,7 @@ Each request has a set of accompanying options:
 
 \section{Time limits}
 
-The PID~1 process controls the time limits. The tracee process, just before \texttt{execveat} saves current real time from \texttt{CLOCK\_MONOTONIC\_RAW} and CPU time from \texttt{cpu.stat} tracee cgroup file to the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}). The problem with \texttt{cpu.stat} file is that it is updated infrequently. For a young tracee process, this file often reports consumed CPU time equal to 0 microseconds instead of a few hundred microseconds. Fortunately, executing \texttt{sched\_yield()} system call forces recalculation of the file and the values are no longer 0. This is why this syscall is required as allowed in the seccomp BPF filter.
+The PID~1 process controls the time limits. The tracee process, just before \texttt{execveat} saves current real time from \texttt{CLOCK\_MONOTONIC\_RAW} and CPU time from \texttt{cpu.stat} tracee cgroup file to the shared memory (see Figure~\ref{fig:server_handles_request_before_execveat}). The problem with \texttt{cpu.stat} file is that it is updated infrequently. For a young tracee process, this file often reports consumed CPU time equal to 0 microseconds instead of a few hundred microseconds. Fortunately, executing \texttt{sched\_yield()} system call forces recalculation of the file and the values are no longer 0. This is why this syscall is required as allowed in the seccomp BPF filter.
 
 \subsection{Real time limit}
 
@@ -651,7 +652,7 @@ In both cases, when the CPU time limit is exceeded, the PID~1 process is signale
 
 \section{Runtime statistics}
 
-After the main tracee process (the first spawned process) exits, the PID~1 process saves the current real time and the exit status in the shared memory, unless the tracee set an error, and exits. The kernel kills all remaining tracee processes (because the PID namespace's init process died). After the PID~1 process exits, the supervisor process reads the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}). It checks if there is an error of either tracee or PID~1 process. If there is one, it becomes the result of the request. If there is none, the supervisor process calculates:
+After the main tracee process (the first spawned process) exits, the PID~1 process saves the current real time and the exit status in the shared memory, unless the tracee set an error, and exits. The kernel kills all remaining tracee processes (because the PID namespace's init process died). After the PID~1 process exits, the supervisor process reads the shared memory (see Figure~\ref{fig:server_handles_request_before_execveat}). It checks if there is an error of either tracee or PID~1 process. If there is one, it becomes the result of the request. If there is none, the supervisor process calculates:
 \begin{itemize}
     \item real time using formula: $\text{time of tracee death} - \text{saved \texttt{execveat} real time}$,
     \item CPU time using formula: $\text{CPU time read from \texttt{cpu.stat} file} - \text{saved \texttt{execveat} CPU time}$,
@@ -662,11 +663,11 @@ After the main tracee process (the first spawned process) exits, the PID~1 proce
 
 Errors in the supervisor process are considered fatal and are reported by writing to \texttt{stderr}. After writing errors, the supervisor process exits immediately. When the client tries to read the request result, the read will fail with \texttt{read} returning unexpected value 0. The client then ensures the supervisor process is dead (in case the communication failed) and tries to read the error the supervisor wrote. If the client finds one it throws exception with this error, otherwise it throws the exception with the \texttt{read} error.
 
-The PID~1 process and the tracee process write error to the shared memory (see Figure \ref{fig:server_handles_request_before_execveat}) and exit immediately. The supervisor process reports these errors as a request result.
+The PID~1 process and the tracee process write error to the shared memory (see Figure~\ref{fig:server_handles_request_before_execveat}) and exit immediately. The supervisor process reports these errors as a request result.
 
 \section{Request sending and receiving}
 
-The request is sent via UNIX domain socket (see Figure \ref{fig:server_waits_for_request}). The request consists of a constant-length header with file descriptors and a variable length body. The request header contains only the length of the request body. The request body contains all parameters of the request that are serialized to a custom binary format.
+The request is sent via UNIX domain socket (see Figure~\ref{fig:server_waits_for_request}). The request consists of a constant-length header with file descriptors and a variable length body. The request header contains only the length of the request body. The request body contains all parameters of the request that are serialized to a custom binary format.
 
 \section{File descriptors}
 
@@ -698,9 +699,9 @@ Signals are another way the processes can communicate with each other. They have
 
 \subsection{Tracee signals}
 
-The tracee can signal only to the visible processes and those are limited by the PID namespace. However, it can also send signals to its process group that can span multiple PID namespaces. Figure \ref{fig:pgid_and_pid_namespace} illustrates this situation. Therefore it is necessary to set new process group for the tracee processes. Furthermore, as a hardening, a new process group is set for the PID~1 process as well, in case the tracee takes control of it.
+The tracee can signal only to the visible processes and those are limited by the PID namespace. However, it can also send signals to its process group that can span multiple PID namespaces. Figure~\ref{fig:pgid_and_pid_namespace} illustrates this situation. Therefore it is necessary to set new process group for the tracee processes. Furthermore, as a hardening, a new process group is set for the PID~1 process as well, in case the tracee takes control of it.
 
-However, it is better to also set a new session id using \texttt{setsid} syscall instead of just the process group id to avoid vulnerabilities connected to the current controlling terminal \cite{bubblewrap_cve}.
+However, it is better to also set a new session id using \texttt{setsid} syscall instead of just the process group id to avoid vulnerabilities connected to the current controlling terminal~\cite{bubblewrap_cve}.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
@@ -739,7 +740,7 @@ Sending response to the client may generate \texttt{SIGPIPE} signal for the supe
 
 \subsection{Undefined Behavior Sanitizer}
 
-The code of the sandbox may be compiled with the Undefined Behavior Sanitizer (UBSan) enabled. UBSan installs signal handlers for \texttt{SIGBUS}, \texttt{SIGFPE} and \texttt{SIGSEGV} signals. This is problematic, because the tracee could send these signals to the PID~1 process. For the init process in the PID namespace, the kernel only allows sending signals for which the init process (here the PID~1 process) has installed the signal handlers \cite{man_pid_namespaces}. Therefore the PID~1 process resets signal dispositions of these handlers if the UBSan is used to prevent the tracee from sending these signals to the PID~1 process.
+The code of the sandbox may be compiled with the Undefined Behavior Sanitizer (UBSan) enabled. UBSan installs signal handlers for \texttt{SIGBUS}, \texttt{SIGFPE} and \texttt{SIGSEGV} signals. This is problematic, because the tracee could send these signals to the PID~1 process. For the init process in the PID namespace, the kernel only allows sending signals for which the init process (here the PID~1 process) has installed the signal handlers~\cite{man_pid_namespaces}. Therefore the PID~1 process resets signal dispositions of these handlers if the UBSan is used to prevent the tracee from sending these signals to the PID~1 process.
 
 \section{Running as superuser}
 
@@ -759,7 +760,7 @@ The seccomp filter in a request is sent as a file descriptor. This avoids unnece
 
 \subsection{Unsharing network, ipc, uts and time namespace}
 
-Unsharing of network, ipc, uts and time namespace is done in the supervisor process, only once, at startup. This avoids doing it for every request in the PID~1 process and has non-negligible impact on the performance (see Chapter \ref{chapter:performance}).
+Unsharing of network, ipc, uts and time namespace is done in the supervisor process, only once, at startup. This avoids doing it for every request in the PID~1 process and has non-negligible impact on the performance (see Chapter~\ref{chapter:performance}).
 
 \section{Integration with Online Judge Platform}
 
@@ -786,7 +787,7 @@ Bash and Python require no additional bind mounts.
 
 \subsection{Interactive problems}
 
-Interactive problems require the tested program to communicate with the checker program i.e. the standard input of the tested program is the standard output of the checker program and the standard output of the tested program is the standard input of the checker program. Figure \ref{fig:intaractive_problem_communication_schema} illustrates this configuration. To accomplish this we need two pipes, one for each communication channel. However, the judge needs to know which process died first to provide a reasonable verdict of checking the tested program on the test.
+Interactive problems require the tested program to communicate with the checker program i.e. the standard input of the tested program is the standard output of the checker program and the standard output of the tested program is the standard input of the checker program. Figure~\ref{fig:intaractive_problem_communication_schema} illustrates this configuration. To accomplish this we need two pipes, one for each communication channel. However, the judge needs to know which process died first to provide a reasonable verdict of checking the tested program on the test.
 
 To see why, lets consider the two examples. In the first one, the checker decides early that the tested program answered wrong, it terminates with a message ''Wrong answer''. Then, the pipe closes and the tested program may get terminated by \texttt{SIGPIPE} for trying to write to the closed pipe. If this happens, the tested program's abnormal death is caused by the checker exiting early. In this situation verdict ''Wrong answer'' is the expected verdict. In the second example, an incorrect tested program terminates early and abnormally. In this case, the pipe closes after the tested program's death and the checker sees the output of the tested program as incomplete and decides ''Wrong answer''. However, in this example an expected verdict would be ''Runtime error'' because the tested program's death caused checker to decide ''Wrong answer'', therefore the tested program's abnormal death takes precedence here. If we don't know who died first in such cases, we cannot reliably deduce the primary cause and therefore cannot decide what is more important, a the tested program's abnormal death or the checker's verdict.
 
@@ -805,7 +806,7 @@ To see why, lets consider the two examples. In the first one, the checker decide
 \label{fig:intaractive_problem_communication_schema}
 \end{figure}
 
-To solve this, one could monitor the ends of the two pipes and see which end closes first. This is possible with e.g. \texttt{poll} syscall. However, it is prone to a race condition because the process monitoring the ends of the pipes may be scheduled after the checker and the tested program process and see them as if they died at the same moment. For example, the tested program process dies abnormally, then checker decides ''Wrong answer'' and exits and only then the \texttt{poll} syscall returns reporting all ends of the pipes as closed without the information which closed first. To avoid this race condition and decide reliably 4 pipes are needed and a process that glues both pairs of pipes together and detects which end is closed first. Figure \ref{fig:interactive_problem_real_communication} illustrates this configuration. As long as, the third process holds open inner four ends of the pipe pairs, the tested program and the checker will not see their \texttt{stdin} and \texttt{stdout} as broken and will not proceed (to terminate, either normally or not). This way we can reliably detect who dies first and give a correct verdict in the scenarios where one's death causes the other's death. To efficiently pass messages in the third process, the \texttt{splice} syscall is used.
+To solve this, one could monitor the ends of the two pipes and see which end closes first. This is possible with e.g. \texttt{poll} syscall. However, it is prone to a race condition because the process monitoring the ends of the pipes may be scheduled after the checker and the tested program process and see them as if they died at the same moment. For example, the tested program process dies abnormally, then checker decides ''Wrong answer'' and exits and only then the \texttt{poll} syscall returns reporting all ends of the pipes as closed without the information which closed first. To avoid this race condition and decide reliably 4 pipes are needed and a process that glues both pairs of pipes together and detects which end is closed first. Figure~\ref{fig:interactive_problem_real_communication} illustrates this configuration. As long as, the third process holds open inner four ends of the pipe pairs, the tested program and the checker will not see their \texttt{stdin} and \texttt{stdout} as broken and will not proceed (to terminate, either normally or not). This way we can reliably detect who dies first and give a correct verdict in the scenarios where one's death causes the other's death. To efficiently pass messages in the third process, the \texttt{splice} syscall is used.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
@@ -839,7 +840,7 @@ To solve this, one could monitor the ends of the two pipes and see which end clo
 
 \subsection{Non-interactive problems}
 
-In the non-interactive problems, the semantics of the input is read-once and of the output is write-once. To achieve this without disallowing \texttt{dup}'ing, \texttt{close}'ing, \texttt{mmap}'ping, \texttt{pread}'ing etc. of the standard input and output file descriptors, we use pipes that are read-once and write-once. Input file is piped to \texttt{stdin} of the tested program, and the tested program's output is piped to the output file. Figure \ref{fig:noninteractive_problem_communication} illustrates this configuration. To efficiently pass messages between a pipe and a file the \texttt{splice} syscall is used.
+In the non-interactive problems, the semantics of the input is read-once and of the output is write-once. To achieve this without disallowing \texttt{dup}'ing, \texttt{close}'ing, \texttt{mmap}'ping, \texttt{pread}'ing etc. of the standard input and output file descriptors, we use pipes that are read-once and write-once. Input file is piped to \texttt{stdin} of the tested program, and the tested program's output is piped to the output file. Figure~\ref{fig:noninteractive_problem_communication} illustrates this configuration. To efficiently pass messages between a pipe and a file the \texttt{splice} syscall is used.
 
 \begin{figure}[h]
 \tikzset{>=latex} % set latex arrow tip
@@ -882,7 +883,7 @@ There were many challenges during the development of the sandbox. First was to u
 
 Another challenge was to orchestrate everything to work together: resource limits, file descriptors, communication between processes, setting up namespaces and cgroups, dropping capabilities etc. It all has to be done in the right order and was often unobvious how to do it right.
 
-The hardest of all was to debug very obscure errors happening during setup of the namespaces and cgroups. Often configuration failed with \texttt{EPERM} or \texttt{EINVAL} and it required figuring out what was wrong with just such vague information. For example, mounting cgroup2 file system is not allowed without unsharing cgroup namespace first. It also requires unsharing mount namespace and user namespace, but this is completely reasonable. In Sections \ref{execveat_returns_einval} and \ref{execveat_returns_enoent} two examples are shown of the hard to debug errors.
+The hardest of all was to debug very obscure errors happening during setup of the namespaces and cgroups. Often configuration failed with \texttt{EPERM} or \texttt{EINVAL} and it required figuring out what was wrong with just such vague information. For example, mounting cgroup2 file system is not allowed without unsharing cgroup namespace first. It also requires unsharing mount namespace and user namespace, but this is completely reasonable. In Sections~\ref{execveat_returns_einval} and~\ref{execveat_returns_enoent} two examples are shown of the hard to debug errors.
 
 \subsection{\texttt{execveat} returns \texttt{EINVAL}} \label{execveat_returns_einval}
 
@@ -903,19 +904,25 @@ All performance tests were made on a laptop with Intel i5-8250U processor and 16
 
 \section{In the context of the online judge}
 
-For the testing we use tasks from the finale of XXII Polish Olimpiad in Informatics: Myjnie (myj), Tablice kierunkowe (tab), Modernizacja autostrady (mod), Wycieczki (wyc). The people who prepare the problem package for the Olympiad write different solutions programs as part of creating the problem package. The solution programs are used to verify the test cases will distinguish the different solutions of the users e.g. those running in $O(n)$ and $O(n^2)$. The model solution program is the best solution program for the problem. In Polish it is called ''rozwiązanie wzorcowe''. The term ''solution'' can be misleading but is currently used in the English literature regarding Olympiads in Informatics \cite{kolstad2009infrastructure, marevs2012new, merry2010performance, merry2009using}.
+For the testing we use tasks from the finals of XXII Polish Olimpiad in Informatics: Myjnie (myj), Tablice kierunkowe (tab), Modernizacja autostrady (mod), Wycieczki (wyc). The people who prepare the problem package for the Olympiad write different solutions programs as part of creating the problem package. The solution programs are used to verify that test cases can differentiate between different user solutions e.g. those running in $O(n)$ and $O(n^2)$. The model solution program is the best solution program for the problem. In Polish it is called ''rozwiązanie wzorcowe''. The term ''solution'' can be misleading but is currently used in the English literature regarding Olympiads in Informatics~\cite{kolstad2009infrastructure, marevs2012new, merry2010performance, merry2009using}.
 
 First, we compare the compilation times of all solution programs outside sandbox, inside sandbox and inside sandbox with seccomp BPF filters disabled. Then we compare the running times outside the sandbox and inside the sandbox of the model solution program of each problem.
 
+For each solution and configuration (outside sandbox, inside sandbox, inside sandbox with seccomp BPF filters disable) 10 runs were performed and both real time and CPU time were recorded. For each model solution program and test (from the respective problem package) and configuration (outside sandbox, inside sandbox) 10 runs were performed and both real time and cpu time were recorded.
+
+The Tables contain (for both real time and CPU time) the mean time from these 10 runs i.e. $\mu = \frac{1}{N} \sum_{i=1}^N x_i$ (where $N = 10$ and $x_1, \ldots, x_N$ are the measured times), standard deviation i.e. $\sigma = \sqrt{\frac{1}{N} \sum_{i=1}^N (x_i - \mu)^2}$, and standard error on the mean i.e. $\sigma_{\bar{x}} = \frac{\sigma}{\sqrt{N}}$.
+
+The plots illustrate the distribution of the measured times i.e. distribution of values $x_1, \ldots, x_{10}$ for each configuration. Elements of the plots are described in the Figure~\ref{figure:plot_legend}.
+
 \subsection{Compilation}
 
-Table \ref{table:myj_compilation} contains the compilation times of the solution programs of the problem Myjnie. Figure \ref{figure:myj_compilation_real_time} presents real times of the compilation times and Figure \ref{figure:myj_compilation_cpu_time} presents CPU times of the compilation times. Due to small differences in runtime only some compilations present statistically significant difference: myj.cpp with 6\% slowdown, myj2.cpp with 5\% slowdown, myj5.pp with 24\% slowdown, myjs7.cpp with 15\% slowdown, and myjs8.cpp with 19\% slowdown. In these cases, disabling the seccomp BPF filters eliminated the slowdown except for myjs5.cpp, where it still is 15\%. For all other solutions, the difference in the compilation time was statistically insignificant.
+Table~\ref{table:myj_compilation} contains the compilation times of the solution programs of the problem Myjnie. Figure~\ref{figure:myj_compilation_real_time} presents real times of the compilation times and Figure~\ref{figure:myj_compilation_cpu_time} presents CPU times of the compilation times. Due to small differences in runtime only some compilations present statistically significant difference: myj.cpp with 6\% slowdown, myj2.cpp with 5\% slowdown, myjs5.cpp with 24\% slowdown, myjs7.cpp with 15\% slowdown, and myjs8.cpp with 19\% slowdown. In these cases, disabling the seccomp BPF filters eliminated the slowdown except for myjs5.cpp, where it still is 15\%. For all other solutions, the difference in the compilation time was statistically insignificant.
 
-Table \ref{table:tab_compilation} contains the compilation times of the solution programs of the problem Tablice kierunkowe. Figure \ref{figure:tab_compilation_real_time} presents real times of the compilation times and Figure \ref{figure:tab_compilation_cpu_time} presents CPU times of the compilation times. Due to high variance of the measurements compared to the small differences of the measurements only some compilations showed statistically significant difference. Of these measurements, the slowdown caused by the sandbox was highest for tabb3 with slowdown of 15\% and tabb4.cpp with slowdown of 16\%. Again most of the slowdown was caused by seccomp BPF filters.
+Table~\ref{table:tab_compilation} contains the compilation times of the solution programs of the problem Tablice kierunkowe. Figure~\ref{figure:tab_compilation_real_time} presents real times of the compilation times and Figure~\ref{figure:tab_compilation_cpu_time} presents CPU times of the compilation times. Due to high variance of the measurements compared to the small differences of the measurements only some compilations showed statistically significant difference. Of these measurements, the slowdown caused by the sandbox was the highest for tabb3 with slowdown of 15\% and tabb4.cpp with slowdown of 16\%. Again most of the slowdown was caused by seccomp BPF filters.
 
-Table \ref{table:mod_compilation} contains the compilation times of the solution programs of the problem Modernizacja autostrady. Figure \ref{figure:mod_compilation_real_time} presents real times of the compilation times and Figure \ref{figure:mod_compilation_cpu_time} presents CPU times of the compilation times. Here all compilation times present statistically significant difference. The slowdown caused by the sandbox was highest for mod2.cpp with 13\% slowdown and mod5.cpp with 23\% slowdown. Again most of the slowdown was caused by seccomp BPF filters except for mod5.cpp where the slowdown without seccomp BPF filters is still 15\%.
+Table~\ref{table:mod_compilation} contains the compilation times of the solution programs of the problem Modernizacja autostrady. Figure~\ref{figure:mod_compilation_real_time} presents real times of the compilation times and Figure~\ref{figure:mod_compilation_cpu_time} presents CPU times of the compilation times. Here all compilation times present statistically significant difference. The slowdown caused by the sandbox was the highest for mod2.cpp with 13\% slowdown and mod5.cpp with 23\% slowdown. Again most of the slowdown was caused by seccomp BPF filters except for mod5.cpp where the slowdown without seccomp BPF filters is still 15\%.
 
-Table \ref{table:wyc_compilation} contains the compilation times of the solution programs of the problem Wycieczki. Figure \ref{figure:wyc_compilation_real_time} presents real times of the compilation times and Figure \ref{figure:wyc_compilation_cpu_time} presents CPU times of the compilation times. Only some compilations showed statistically significant difference: wycb1.cpp with 8\% slowdown of the sandbox, wycb2.cpp with 8\% slowdown, wycb3.cpp with 8\% slowdown and wycb5.cpp with 10\% slowdown. Disabling seccomp BPF filters reduces the slowdown to be insignificant.
+Table~\ref{table:wyc_compilation} contains the compilation times of the solution programs of the problem Wycieczki. Figure~\ref{figure:wyc_compilation_real_time} presents real times of the compilation times and Figure~\ref{figure:wyc_compilation_cpu_time} presents CPU times of the compilation times. Only some compilations showed statistically significant difference: wycb1.cpp with 8\% slowdown of the sandbox, wycb2.cpp with 8\% slowdown, wycb3.cpp with 8\% slowdown and wycb5.cpp with 10\% slowdown. Disabling seccomp BPF filters reduces the slowdown to be insignificant.
 
 From the measurements we see that most of the time, the overhead comes solely from the seccomp BPF filters. The compilation in the sandbox can be slower by up to 24\%, but most of the time it is no slower than 10\% and half of the time it is statistically no slower than compilation without the sandbox.
 
@@ -928,19 +935,19 @@ Commands used in testing:
 
 \subsection{Model solutions' run times}
 
-Table \ref{table:myj_model_solution_runtimes} contains the run times of the model solution program of problem Myjnie. Figure \ref{figure:myj_model_solution_real_time} presents real times and Figure \ref{figure:myj_model_solution_cpu_time} the CPU times of the model solution program. Of all tests, only myj20d showed a statistically significant difference in runtime --- a 19\% slowdown. On other tests the variance of the measurements is too high compared to the differences to show anything.
+Table~\ref{table:myj_model_solution_runtimes} contains the run times of the model solution program of problem Myjnie. Figure~\ref{figure:myj_model_solution_real_time} presents real times and Figure~\ref{figure:myj_model_solution_cpu_time} the CPU times of the model solution program. Of all tests, only myj20d showed a statistically significant difference in runtime --- a 19\% slowdown. On other tests the variance of the measurements is too high compared to the differences to show anything.
 
-Table \ref{table:tab_model_solution_runtimes} contains the run times of the model solution program of problem Tablice kierunkowe. Figure \ref{figure:tab_model_solution_real_time} presents real times and Figure \ref{figure:tab_model_solution_cpu_time} the CPU times of the model solution program. Despite high variance of the measurements, some test showed statistically significant difference, e.g. tab4d with 44\% speed up inside the sandbox, tab4e with 18\% speed up, tab4f with 45\% speed up. For smaller tests the speed up is more apparent but can be caused by method of measuring runtime i.e. \texttt{perf stat} vs. sandbox i.e. real time timer and cgroup \texttt{cpu.stat} file. Therefore the differences in smaller tests are not considered as statistically significant. The next subsection compares run times of short-running programs.
+Table~\ref{table:tab_model_solution_runtimes} contains the run times of the model solution program of problem Tablice kierunkowe. Figure~\ref{figure:tab_model_solution_real_time} presents real times and Figure~\ref{figure:tab_model_solution_cpu_time} the CPU times of the model solution program. Despite high variance of the measurements, some test showed statistically significant difference, e.g. tab4d with 44\% speed up inside the sandbox, tab4e with 18\% speed up, tab4f with 45\% speed up. For smaller tests the speed up is more apparent but can be caused by a method of measuring runtime i.e. \texttt{perf stat} vs. sandbox i.e. real time timer and cgroup \texttt{cpu.stat} file. Therefore the differences in smaller tests are not considered as statistically significant. The next subsection compares run times of short-running programs.
 
-Table \ref{table:mod_model_solution_runtimes} contains the run times of the model solution program of problem Modernizacja autostrady. Figure \ref{figure:mod_model_solution_real_time} presents real times and Figure \ref{figure:mod_model_solution_cpu_time} the CPU times of the model solution program. Due to high variance and small differences in the measurements, only test mod7a shows statistically significant difference with 8\% slowdown inside the sandbox.
+Table~\ref{table:mod_model_solution_runtimes} contains the run times of the model solution program of problem Modernizacja autostrady. Figure~\ref{figure:mod_model_solution_real_time} presents real times and Figure~\ref{figure:mod_model_solution_cpu_time} the CPU times of the model solution program. Due to high variance and small differences in the measurements, only test mod7a shows statistically significant difference with 8\% slowdown inside the sandbox.
 
-Table \ref{table:wyc_model_solution_runtimes} contains the run times of the model solution program of problem Wycieczki. Figure \ref{figure:wyc_model_solution_real_time} presents real times and Figure \ref{figure:wyc_model_solution_cpu_time} the CPU times of the model solution program. Here we have similar situation as with the model solution of problem Tablice kierunkowe. High variance and small differences in the measurements, renders most of the tests statistically indistinguishable. Some tests show speed-up in the sandbox e.g. wyc6d with 2\% speed up, and wyc6e with 4\% speed up. For smaller tests the speed up is more apparent but can be caused by method of measuring runtime.
+Table~\ref{table:wyc_model_solution_runtimes} contains the run times of the model solution program of problem Wycieczki. Figure~\ref{figure:wyc_model_solution_real_time} presents real times and Figure~\ref{figure:wyc_model_solution_cpu_time} the CPU times of the model solution program. Here we have similar situation as with the model solution of problem Tablice kierunkowe. High variance and small differences in the measurements, renders most of the tests statistically indistinguishable. Some tests show speed-up in the sandbox e.g. wyc6d with 2\% speed up, and wyc6e with 4\% speed up. For smaller tests the speed up is more apparent but can be caused by a method of measuring runtime.
 
 From the measurements we see that on large tests (those with high runtime) the slowdown in the sandbox can be as high as 19\%. However, in vast majority of tests, there was no significant difference in runtime between inside and without the sandbox. This can be attributed to a low number of system calls performed by the solution which mainly makes computation in the memory instead of performing IO. Some medium tests showed a speed up of up to 44\% if run inside the sandbox. This is unexpected. It may be caused by a simpler file system hierarchy inside the sandbox, but it requires further investigation. Differences on small tests were ignored due to a different method of measuring runtime i.e. \texttt{perf stat} vs. sandbox i.e. real time timer and cgroup \texttt{cpu.stat} file.
 
 \section{Short-running programs and comparison with nsjail}
 
-An example of a short-running program is \texttt{/bin/true} --- we will use it in the benchmark. The metric we will use is the round-trip time of the request to sandbox a program. Table \ref{table:bin_true_times} contains the measurements of the time to handle request to run the \texttt{/bin/true} program, without the sandbox, with sandbox and using nsjail. From the data we see that the nsjail is more than 4 times slower, while at the same time it does not spawn a separate PID~1 process and does not provide the runtime statistics. Our sandbox, while 2.39 times slower, still allows for hundreds requests per second --- and that was the goal of the thesis.
+An example of a short-running program is \texttt{/bin/true} --- we will use it in the benchmark. The metric we will use is the round-trip time of the request to sandbox a program. Table~\ref{table:bin_true_times} contains the measurements of the time to handle request to run the \texttt{/bin/true} program, without the sandbox, with sandbox and using nsjail. From the data we see that the nsjail is more than 4 times slower, while at the same time it does not spawn a separate PID~1 process and does not provide the runtime statistics. Our sandbox, while 2.39 times slower, still allows for hundreds requests per second --- and that was the goal of the thesis.
 
 \begin{small}
 \begin{longtable}{|l|r|r|r|r|}
@@ -951,17 +958,18 @@ no sandbox   & 0.893ms & 0.409ms (45.80\%) & 0.013ms (1.45\%) & 1x \\
 sandbox      & 2.348ms & 0.768ms (32.71\%) & 0.024ms (1.03\%) & 2.39x \\
 nsjail       & 10.393ms & 1.327ms (12.77\%) & 0.042ms (0.40\%) & 10.57x \\
 \hline
+\multicolumn{1}{c}{}\\ % adds vertical space between longtable and caption
 \caption{Statistics for each row were collected from 1000 runs. Each row contains real time it took to handle request to sandbox the \texttt{/bin/true} program. While the slowdown of the sandbox is huge (more than twofold), it still allows for hundreds of runs per second and that was the goal of this thesis, whereas nsjail is more than 4 times slower than our sandbox.}
 \label{table:bin_true_times}
 \end{longtable}
 \end{small}
 
 nsjail does not provide any means to handle more than one program in one execution. This means that one execution of the nsjail program equals one execution of the sandboxed program. This way, the nsjail program cannot share resources e.g. namespaces between the runs and therefore should be slower than our solution. Our solution executes the server program once and it can handle more than one request for secure execution of a program therefore it can and shares the resources. This way, our solution has lower overhead per one execution of the sandboxed program.
-Therefore the request handle time is drastically lower than for our sandbox. This is presented in Table \ref{table:bin_true_times}. The nsjail can handle around 4.4 times less requests than our solution in a given time. Moreover, our sandbox allows easy collection of the runtime statistics that nsjail is incapable of doing. Command used for benchmarking the nsjail: \texttt{/usr/bin/nsjail -q -Mo -{}-chroot / -{}-use\_cgroupv2 -{}- /bin/true}.
+Therefore the request handle time is drastically lower than for our sandbox. This is presented in Table~\ref{table:bin_true_times}. The nsjail can handle around 4.4 times less requests than our solution in a given time. Moreover, our sandbox allows easy collection of the runtime statistics that nsjail is incapable of doing. Command used for benchmarking the nsjail: \texttt{/usr/bin/nsjail -q -Mo -{}-chroot / -{}-use\_cgroupv2 -{}- /bin/true}.
 
 \section{Impact of some optimizations}
 
-From the Table \ref{table:optimization_impact} it is clear that unsharing namespaces once instead of for every request has positive impact on the performance. The most meaningful was the network namespace that if unshared for every request resulted in 26\% performance degradation.
+From Table~\ref{table:optimization_impact} it is clear that unsharing namespaces once instead of for every request has positive impact on the performance. The most meaningful was the network namespace that if unshared for every request resulted in 26\% performance degradation.
 
 \begin{small}
 \begin{longtable}{|l|r|r|r|r|}
@@ -976,6 +984,7 @@ Baseline                                              & 2.348ms & 0.768ms (32.71
 \hline
 \makecell{New UTS namespace \\ for each request}      & 2.478ms & 0.771ms (31.14\%) & 0.024ms (0.98\%) & 5.54\% \\
 \hline
+\multicolumn{1}{c}{}\\ % adds vertical space between longtable and caption
 \caption{Statistics for each row were collected from 1000 runs. Each row contains real time it took to handle request to sandbox the \texttt{/bin/true} program.}
 \label{table:optimization_impact}
 \end{longtable}
@@ -984,7 +993,7 @@ Baseline                                              & 2.348ms & 0.768ms (32.71
 \iffalse
 \section{1'000'000 syscall benchmark}
 
-A test program that performs 1\,000\,000 times a \texttt{lseek} syscall was used to simulate a program that performs a very large number of syscalls. In table \ref{table:million_lseek} are listed the time measurements. From the data, we see that running an executable inside sandbox has negligible impact on its runtime. Adding a seccomp BPF filter makes a slowdown that is below 4\% for this synthetic, syscall-intensive program. However, this benchmark is artificial because a typical tested program preforms normally at most tens of thousands syscalls and the seccomp overhead affects only the syscalls, so the real overhead will be lower.
+A test program that performs 1\,000\,000 times a \texttt{lseek} syscall was used to simulate a program that performs a very large number of syscalls. In table~\ref{table:million_lseek} are listed the time measurements. From the data, we see that running an executable inside sandbox has negligible impact on its runtime. Adding a seccomp BPF filter makes a slowdown that is below 4\% for this synthetic, syscall-intensive program. However, this benchmark is artificial because a typical tested program preforms normally at most tens of thousands syscalls and the seccomp overhead affects only the syscalls, so the real overhead will be lower.
 
 \begin{table}[h]
 \centering
@@ -1009,9 +1018,9 @@ Although the slowdown of the compilation of around 24\% and run time of the solu
 
 \chapter{Conclusion}\label{chapter:conclusion}
 
-The goal of the thesis was to design, implement and integrate the new sandbox for the Sim project \cite{sim_project} --- an online platform for preparing people and carrying out algorithmic contests. The new sandbox is optimized for running short-running programs and is versatile enough to run complex programs like the C++ compiler. It isolates the execution environment using Linux namespaces and offers resource limiting using cgroups and \texttt{prlimit}. Furthermore, it provides statistics of the exucution: real and cpu time, and the peak memory usage. This makes it a perfect solution for an online judge platform, which needs strong isolation and resource limiting as well as the execution statistics. Moreover, our sandbox does not require any privileges --- it can be used by any unprivileged user.
+The goal of the thesis was to design, implement and integrate the new sandbox for the Sim project~\cite{sim_project} --- an online platform for preparing people and carrying out algorithmic contests. The new sandbox is optimized for running short-running programs and is versatile enough to run complex programs like the C++ compiler. It isolates the execution environment using Linux namespaces and offers resource limiting using cgroups and \texttt{prlimit}. Furthermore, it provides statistics of the exucution: real and cpu time, and the peak memory usage. This makes it a perfect solution for an online judge platform, which needs strong isolation and resource limiting as well as the execution statistics. Moreover, our sandbox does not require any privileges --- it can be used by any unprivileged user.
 
-Our sandbox is a container-like solution. It uses the same Linux kernel's mechanisms to isolate and limit resources as container engines like Docker or LXC. The term ''rootless containers'' is the closest description of what is done under the hood by our sandbox. Of different sandboxing solutions, the closest in design and functionality is \textit{nsjail} \cite{google/nsjail}.
+Our sandbox is a container-like solution. It uses the same Linux kernel's mechanisms to isolate and limit resources as container engines like Docker or LXC. The term ''rootless containers'' is the closest description of what is done under the hood by our sandbox. Of different sandboxing solutions, the closest in design and functionality is \textit{nsjail}~\cite{google/nsjail}.
 
 In order to share as much resources as possible between the executions of the untrusted programs, our sandbox uses the client-server architecture, where the client sends sandboxing requests to the server process. The server process then sets up the namespaces, cgroups, resource limits etc. and executes the requested untrusted program.
 
@@ -1021,7 +1030,7 @@ Integration with the Online Judge Platform was straightforward due to the versat
 
 The implementation was tested with a thorough set of unit tests covering every single feature and the integration tests. Along the way, many challenges were overcome including debugging very obscure errors.
 
-The performance was evaluated using four tasks from the finale of XXII Polish Olimpiad in Informatics. Compilation of the solution programs as well as model solution programs run times were measured.
+The performance was evaluated using four tasks from the finals of XXII Polish Olimpiad in Informatics. Compilation of the solution programs as well as model solution programs run times were measured.
 
 The compilation in the sandbox can be slower by up to 24\%, but most of the time it is no slower than 10\% and half of the time it is statistically no slower than
 compilation without the sandbox. In the compilation, most of the time, the slowdown comes solely from seccomp BPF filters.
@@ -1038,11 +1047,11 @@ There are several aspects that can be worked upon. Each of a different degree of
 
 \subsection{CPU affinity}
 
-Now, there is no support for setting CPU affinity mask for the request. Such support should be straightforward to add. It could reduce time variability of subsequent runs of the tested program \cite{merry2010performance}.
+Now, there is no support for setting CPU affinity mask for the request. Such support should be straightforward to add. It could reduce time variability of subsequent runs of the tested program~\cite{merry2010performance}.
 
 \subsection{Adding support for networking}
 
-Although disabling the networking altogether is secure, adding a loopback device can be beneficial for some applications. Adding other devices requires superuser privileges and is out-of-scope for the current solution, but can be done with a \texttt{setuid} helper binary like in Firejail \cite{netblue30/firejail}.
+Although disabling the networking altogether is secure, adding a loopback device can be beneficial for some applications. Adding other devices requires superuser privileges and is out-of-scope for the current solution, but can be done with a \texttt{setuid} helper binary like in Firejail~\cite{netblue30/firejail}.
 
 \subsection{Rust frontend}
 
@@ -1063,7 +1072,92 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
 
 \begin{appendices}
 
-\chapter{Tables and plots}
+\chapter{Tables and plots}\label{appendix:tables_and_plots}
+
+\section{Plot legend}
+Figure~\ref{figure:plot_legend} illustrates meaning of the representation of the measurements on the plots.
+
+\newpage
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[spy using outlines]
+\begin{semilogxaxis}[
+    height=5cm,
+    width=13cm,
+    xlabel={Seconds},
+    ymin=0,
+    ymax=2,
+    ytick={0, ..., 2},
+    y tick label as interval,
+    yticklabels={Degenerated, Normal},
+    xmajorgrids,
+    ymajorgrids,
+    boxplot={
+        average=auto, % draw average
+        % group adjacent boxes together (+0.001 because of rounding errors)
+        draw position={(1 + floor(\plotnumofactualtype/3 + 0.001) + \plotnumofactualtype)/(1 + 3)},
+        box extend=(1/(1 + 3) - 0.02),
+    },
+    % select
+    cycle list={{black}},
+]
+    \addplot+ table[row sep=\\, y index=0] {0.448965421\\0.464565638\\0.370354179\\0.375537642\\0.368775759\\0.372661316\\0.37054048\\0.367902992\\0.369483081\\0.370364628\\};
+    \addplot+ table[row sep=\\, y index=0] {2.474142784\\2.563964408\\2.460620994\\2.531500953\\2.448240692\\2.021176078\\2.30640065\\2.463312493\\2.455729106\\2.480140546\\};
+    \addplot+ table[row sep=\\, y index=0] {2.159303881\\2.248771568\\2.14780616\\2.170111318\\2.229498955\\2.237990655\\2.240227633\\2.172606514\\2.229791782\\2.247771411\\};
+
+    \addplot+ table[row sep=\\, y index=0] {0\\};
+    \addplot+ table[row sep=\\, y index=0] {0.630551647\\0.70806204\\0.517000124\\0.495456991\\0.516422947\\0.514125433\\0.516012595\\0.589044459\\0.645094339\\0.655693837\\0.9\\0.2\\};
+\end{semilogxaxis}
+    \node (outliers_label) at (0.8, 4) {Outliers};
+    \coordinate (lower_outlier) at (0.94, 2.7);
+    \coordinate (upper_outlier) at (6.48, 2.6);
+    \draw[->] (outliers_label) -- (lower_outlier);
+    \draw[->] (outliers_label) -- (upper_outlier);
+
+    \node (lower_whisker_label) at (3, 2) {Lower whisker};
+    \coordinate (lower_whisker) at (4.335, 2.4);
+    \draw[->] (lower_whisker_label) -| (lower_whisker);
+
+    \node (upper_whisker_label) at (7, 2) {Upper whisker};
+    \coordinate (upper_whisker) at (5.665, 2.4);
+    \draw[->] (upper_whisker_label) -| (upper_whisker);
+
+    \node (lower_quartile_label) at (2.6, 4.3) {Lower quartile};
+    \coordinate (lower_quartile) at (4.488, 2.77);
+    \draw[->] (lower_quartile_label) -| (lower_quartile);
+
+    \node (upper_quartile_label) at (7, 4.3) {Upper quartile};
+    \coordinate (upper_quartile) at (5.331, 2.77);
+    \draw[->] (upper_quartile_label) -| (upper_quartile);
+
+    \node (median_label) at (3.8, 4.8) {Median};
+    \coordinate (median) at (4.745, 2.77);
+    \draw[->] (median_label) -| (median);
+
+    \node (mean_label) at (5.8, 4.8) {Mean};
+    \coordinate (mean) at (4.883, 2.65);
+    \draw[->] (mean_label) -| (mean);
+
+    % \spy [green, draw, height=1cm, width=2cm, magnification=4, connect spies] on (10, 1) in node at (5, -2);
+    \spy [draw, height=5cm, width=6cm, magnification=5, connect spies] on (10, 1.05) in node at (5, -4);
+\end{tikzpicture}
+\caption{Upper part of the plot illustrates the normal, fully visible distribution illustration as a boxplot with its individual parts labeled. The lower part illustrated three degenerated boxplots --- having their individual parts so close together they are hard to tell apart. \\
+Citing the \texttt{pgfplots} package documentation: \\
+Assume that we have a given sample of a distribution, say $x_1, \ldots, x_N$ , and assume that the values are sorted, $x_1 < \ldots < x_N$. For any real number $p$ with $0 \leq p \leq 1$, the ''$p$-quantile'' is defined as \\
+$x_p := \begin{cases}
+x_{N \cdot p} & \text{if $N \cdot p$ is an integer number} \\
+\frac{1}{2}(x_{\lfloor N \cdot p \rfloor} + x_{\lceil N \cdot p \rceil}) & \text{if $N \cdot p$ is not an integer} \\
+\end{cases}$ \\
+\textbf{Median} is the 0.5-quantile of the input data: half of the points are less and half of the points are larger than the median. \\
+\textbf{Lower quartile} is the 0.25-quantile of the input data. \\
+\textbf{Upper quartile} is the 0.75-quantile of the input data. \\
+\textbf{Lower whisker} is the smallest data value which is larger than $\textbf{lower quartile} - 1.5 \cdot \text{IQR}$ where IQR is the ''interquartile range'', i.e. the difference between \textbf{upper quartile} and \texttt{lower quartile}. \\
+\textbf{Upper whisker} is the largest data value which is smaller than $\textbf{upper quartile} + 1.5 \cdot \text{IQR}$. \\
+\textbf{Mean} is the sample average.
+}
+\label{figure:plot_legend}
+\end{figure}
+
 
 \section{Compilation times}
 
@@ -1236,7 +1330,8 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
                             & \multirow{2}{*}{no BPF} & real & 2070.14ms & 38.98ms (1.88\%) & 12.33ms (0.60\%) & 2.82\% \\*
                             &                         & CPU  & 2053.40ms & 38.97ms (1.90\%) & 12.32ms (0.60\%) & 2.78\% \\
 \hline
-\caption{Compilation times of all solution programs of the problem Myjnie (myj) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
+\multicolumn{1}{c}{}\\ % adds vertical space between longtable and caption
+\caption{Compilation times of all solution programs of the problem Myjnie (myj) from the finals of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:myj_compilation}
 \end{longtable}
 \end{small}
@@ -1248,6 +1343,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=20cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=18,
     ytick={0, ..., 18},
@@ -1320,7 +1416,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\,y index=0] {2.122462018\\2.132536618\\2.073933705\\2.067159077\\2.065168804\\1.979778198\\2.058813864\\2.061524009\\2.078709877\\2.061309688\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Compilation times of all solution programs of the problem Myjnie (myj) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
+\caption{Compilation times of all solution programs of the problem Myjnie (myj) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
 \label{figure:myj_compilation_real_time}
 \end{figure}
 
@@ -1331,6 +1427,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=20cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=18,
     ytick={0, ..., 18},
@@ -1403,7 +1500,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\, y index=0] {2.098558\\2.107762\\2.062234\\2.051625\\2.053330\\1.953545\\2.047178\\2.050089\\2.061456\\2.048221\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Compilation times of all solution programs of the problem Myjnie (myj) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
+\caption{Compilation times of all solution programs of the problem Myjnie (myj) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
 \label{figure:myj_compilation_cpu_time}
 \end{figure}
 
@@ -1576,7 +1673,8 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
                             & \multirow{2}{*}{no BPF} & real & 2164.08ms & 43.88ms (2.03\%) & 13.87ms (0.64\%) & -0.90\% \\*
                             &                         & CPU  & 2141.77ms & 39.89ms (1.86\%) & 12.61ms (0.59\%) & -1.08\% \\
 \hline
-\caption{Compilation times of all solution programs of the problem Tablice kierunkowe (tab) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
+\multicolumn{1}{c}{}\\ % adds vertical space between longtable and caption
+\caption{Compilation times of all solution programs of the problem Tablice kierunkowe (tab) from the finals of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:tab_compilation}
 \end{longtable}
 \end{small}
@@ -1588,6 +1686,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=20cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=18,
     ytick={0, ..., 18},
@@ -1660,7 +1759,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\, y index=0] {2.112258194\\2.121771575\\2.23430344\\2.221261046\\2.144676924\\2.178693152\\2.121132965\\2.218403739\\2.130106335\\2.158232922\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Compilation times of all solution programs of the problem Tablice kierunkowe (tab) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
+\caption{Compilation times of all solution programs of the problem Tablice kierunkowe (tab) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
 \label{figure:tab_compilation_real_time}
 \end{figure}
 
@@ -1671,6 +1770,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=20cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=18,
     ytick={0, ..., 18},
@@ -1743,7 +1843,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\, y index=0] {2.097710\\2.108495\\2.209666\\2.194894\\2.119399\\2.155002\\2.103221\\2.183326\\2.102527\\2.143499\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Compilation times of all solution programs of the problem Tablice kierunkowe (tab) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
+\caption{Compilation times of all solution programs of the problem Tablice kierunkowe (tab) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
 \label{figure:tab_compilation_cpu_time}
 \end{figure}
 
@@ -1870,7 +1970,8 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
                             & \multirow{2}{*}{no BPF} & real & 487.78ms & 10.08ms (2.07\%) & 3.19ms (0.65\%) & -4.19\% \\*
                             &                         & CPU  & 482.33ms & 10.09ms (2.09\%) & 3.19ms (0.66\%) & -3.08\% \\
 \hline
-\caption{Compilation times of all solution programs of the problem Modernizacja autostrady (mod) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
+\multicolumn{1}{c}{}\\ % adds vertical space between longtable and caption
+\caption{Compilation times of all solution programs of the problem Modernizacja autostrady (mod) from the finals of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:mod_compilation}
 \end{longtable}
 \end{small}
@@ -1882,6 +1983,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=20cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=13,
     ytick={0, ..., 13},
@@ -1939,7 +2041,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\, y index=0] {0.478234736\\0.480457557\\0.494221396\\0.488383513\\0.486428185\\0.484440526\\0.478485834\\0.479525755\\0.495235639\\0.512416618\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Compilation times of all solution programs of the problem Modernizacja autostrady (mod) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
+\caption{Compilation times of all solution programs of the problem Modernizacja autostrady (mod) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
 \label{figure:mod_compilation_real_time}
 \end{figure}
 
@@ -1950,6 +2052,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=20cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=13,
     ytick={0, ..., 13},
@@ -2007,7 +2110,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\, y index=0] {0.474540\\0.476955\\0.479724\\0.476402\\0.481760\\0.481264\\0.475623\\0.476665\\0.490909\\0.509446\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Compilation times of all solution programs of the problem Modernizacja autostrady (mod) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
+\caption{Compilation times of all solution programs of the problem Modernizacja autostrady (mod) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
 \label{figure:mod_compilation_cpu_time}
 \end{figure}
 \subsection{Wycieczki (wyc)}
@@ -2090,7 +2193,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
                             &                         & CPU  & 982.35ms & 12.70ms (1.29\%) & 4.02ms (0.41\%) & -1.56\% \\
 \hline
 \pagebreak
-\caption{Compilation times of all solution programs of the problem Wycieczki (wyc) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
+\caption{Compilation times of all solution programs of the problem Wycieczki (wyc) from the finals of XXII Polish Olimpiad in Informatics. For each configuration (Solution program and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:wyc_compilation}
 \end{longtable}
 \end{small}
@@ -2102,6 +2205,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=15cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=8,
     ytick={0, ..., 8},
@@ -2144,7 +2248,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\, y index=0] {1.029402376\\1.008870337\\0.981671285\\0.982459107\\0.999650289\\0.988921819\\0.981542457\\1.01046778\\0.987395892\\0.992346576\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Compilation times of all solution programs of the problem Wycieczki (wyc) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
+\caption{Compilation times of all solution programs of the problem Wycieczki (wyc) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
 \label{figure:wyc_compilation_real_time}
 \end{figure}
 
@@ -2155,6 +2259,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=15cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=8,
     ytick={0, ..., 8},
@@ -2197,7 +2302,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\, y index=0] {1.013035\\0.978533\\0.974919\\0.977176\\0.985374\\0.982355\\0.973270\\0.990747\\0.962295\\0.985763\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Compilation times of all solution programs of the problem Wycieczki (wyc) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
+\caption{Compilation times of all solution programs of the problem Wycieczki (wyc) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took to compile the solution. The black bars represent compilation without the sandbox, the blue bars inside the sandbox, and red inside the sandbox without seccomp BPF filters. For each bar, data was collected from 10 runs.}
 \label{figure:wyc_compilation_cpu_time}
 \end{figure}
 
@@ -2540,7 +2645,8 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
                           & \multirow{2}{*}{yes} & real & 1364.85ms & 19.99ms (1.46\%) & 6.32ms (0.46\%) & 7.54\% \\*
                           &                      & CPU  & 1357.45ms & 16.52ms (1.22\%) & 5.22ms (0.38\%) & 7.48\% \\
 \hline
-\caption{Run times of the model solution program of the problem Myjnie (myj) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
+\multicolumn{1}{c}{}\\ % adds vertical space between longtable and caption
+\caption{Run times of the model solution program of the problem Myjnie (myj) from the finals of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:myj_model_solution_runtimes}
 \end{longtable}
 \end{small}
@@ -2553,6 +2659,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=24cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=55,
     ytick={0, ..., 55},
@@ -2681,7 +2788,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\, y index=0] {1.388144243\\1.375863631\\1.394907045\\1.365003276\\1.358885228\\1.344741521\\1.340479445\\1.348342857\\1.342408306\\1.389699404\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Run times of the model solution program of the problem Myjnie (myj) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
+\caption{Run times of the model solution program of the problem Myjnie (myj) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
 \label{figure:myj_model_solution_real_time}
 \end{figure}
 
@@ -2693,6 +2800,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=24cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=55,
     ytick={0, ..., 55},
@@ -2821,7 +2929,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\, y index=0] {1.382483\\1.371337\\1.376314\\1.360422\\1.353220\\1.340419\\1.336109\\1.343865\\1.338035\\1.372263\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Run times of the model solution program of the problem Myjnie (myj) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
+\caption{Run times of the model solution program of the problem Myjnie (myj) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
 \label{figure:myj_model_solution_cpu_time}
 \end{figure}
 
@@ -3174,7 +3282,8 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
                           & \multirow{2}{*}{yes} & real & 106.16ms & 7.82ms (7.37\%) & 2.47ms (2.33\%) & 8.32\% \\*
                           &                      & CPU  & 105.38ms & 7.30ms (6.93\%) & 2.31ms (2.19\%) & 9.14\% \\
 \hline
-\caption{Run times of the model solution program of the problem Tablice kierunkowe (tab) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
+\multicolumn{1}{c}{}\\ % adds vertical space between longtable and caption
+\caption{Run times of the model solution program of the problem Tablice kierunkowe (tab) from the finals of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:tab_model_solution_runtimes}
 \end{longtable}
 \end{small}
@@ -3187,6 +3296,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=24cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=57,
     ytick={0, ..., 57},
@@ -3319,7 +3429,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\, y index=0] {0.095371855\\0.103255786\\0.103559751\\0.12238616\\0.102139561\\0.103796046\\0.096312366\\0.111188673\\0.113902424\\0.109714552\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Run times of the model solution program of the problem Tablice kierunkowe (tab) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
+\caption{Run times of the model solution program of the problem Tablice kierunkowe (tab) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
 \label{figure:tab_model_solution_real_time}
 \end{figure}
 
@@ -3331,6 +3441,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=24cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=57,
     ytick={0, ..., 57},
@@ -3463,7 +3574,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\, y index=0] {0.094968\\0.102762\\0.103037\\0.119496\\0.101620\\0.103250\\0.095785\\0.110483\\0.113288\\0.109099\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Run times of the model solution program of the problem Tablice kierunkowe (tab) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
+\caption{Run times of the model solution program of the problem Tablice kierunkowe (tab) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
 \label{figure:tab_model_solution_cpu_time}
 \end{figure}
 
@@ -3888,7 +3999,8 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
                           & \multirow{2}{*}{yes} & real & 515.51ms & 6.05ms (1.17\%) & 1.91ms (0.37\%) & -1.46\% \\*
                           &                      & CPU  & 512.87ms & 6.00ms (1.17\%) & 1.90ms (0.37\%) & -1.48\% \\
 \hline
-\caption{Run times of the model solution program of the problem Modernizacja autostrady (mod) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
+\multicolumn{1}{c}{}\\ % adds vertical space between longtable and caption
+\caption{Run times of the model solution program of the problem Modernizacja autostrady (mod) from the finals of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:mod_model_solution_runtimes}
 \end{longtable}
 \end{small}
@@ -3901,6 +4013,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=24cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=69,
     ytick={0, ..., 69},
@@ -4057,7 +4170,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\, y index=0] {0.513713669\\0.526412783\\0.523183742\\0.51580752\\0.507426132\\0.508676477\\0.51015186\\0.513527366\\0.514414997\\0.521754954\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Run times of the model solution program of the problem Modernizacja autostrady (mod) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
+\caption{Run times of the model solution program of the problem Modernizacja autostrady (mod) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
 \label{figure:mod_model_solution_real_time}
 \end{figure}
 
@@ -4069,6 +4182,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=24cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=69,
     ytick={0, ..., 69},
@@ -4225,7 +4339,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\, y index=0] {0.511208\\0.523796\\0.520470\\0.513254\\0.504878\\0.505982\\0.507531\\0.511018\\0.511768\\0.518784\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Run times of the model solution program of the problem Modernizacja autostrady (mod) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
+\caption{Run times of the model solution program of the problem Modernizacja autostrady (mod) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
 \label{figure:mod_model_solution_cpu_time}
 \end{figure}
 
@@ -4626,7 +4740,8 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
                           & \multirow{2}{*}{yes} & real & 344.04ms & 1.45ms (0.42\%) & 0.46ms (0.13\%) & 7.12\% \\*
                           &                      & CPU  & 342.77ms & 1.42ms (0.42\%) & 0.45ms (0.13\%) & 8.27\% \\
 \hline
-\caption{Run times of the model solution program of the problem Wycieczki (wyc) from the finale of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
+\multicolumn{1}{c}{}\\ % adds vertical space between longtable and caption
+\caption{Run times of the model solution program of the problem Wycieczki (wyc) from the finals of XXII Polish Olimpiad in Informatics. For each configuration (Test case and Sandbox columns) the data was collected from 10 runs. Real and CPU times were collected from the same runs. Slowdown is measured from the times of configuration without the sandbox.}
 \label{table:wyc_model_solution_runtimes}
 \end{longtable}
 \end{small}
@@ -4639,6 +4754,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=24cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=65,
     ytick={0, ..., 65},
@@ -4787,7 +4903,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\, y index=0] {0.342821817\\0.344374072\\0.344877899\\0.343231195\\0.345583697\\0.343079166\\0.343018489\\0.341512173\\0.345811504\\0.346074734\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Run times of the model solution program of the problem Wycieczki (wyc) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
+\caption{Run times of the model solution program of the problem Wycieczki (wyc) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the real time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
 \label{figure:wyc_model_solution_real_time}
 \end{figure}
 
@@ -4799,6 +4915,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     height=24cm,
     width=15cm,
     xlabel={Seconds},
+    y dir=reverse,
     ymin=0,
     ymax=65,
     ytick={0, ..., 65},
@@ -4947,7 +5064,7 @@ We would like to thank Janina Mincer-Daszkiewicz for relentless and valuable ins
     \addplot+ table[row sep=\\, y index=0] {0.341669\\0.343151\\0.343453\\0.341911\\0.344283\\0.341753\\0.341740\\0.340363\\0.344621\\0.344799\\};
 \end{semilogxaxis}
 \end{tikzpicture}
-\caption{Run times of the model solution program of the problem Wycieczki (wyc) from the finale of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
+\caption{Run times of the model solution program of the problem Wycieczki (wyc) from the finals of XXII Polish Olimpiad in Informatics. Each bar represents the distribution of the CPU time it took the model solution to run the test. The black bars represent runtime without the sandbox and the blue bars inside the sandbox. For each bar, data was collected from 10 runs.}
 \label{figure:wyc_model_solution_cpu_time}
 \end{figure}
 
