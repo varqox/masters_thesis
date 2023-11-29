@@ -79,7 +79,7 @@
 \usepackage{makecell}
 \usepackage{multirow}
 % Appendices
-\usepackage[page, titletoc]{appendix}
+\usepackage[titletoc]{appendix}
 
 \makeatletter
 \def\@cline#1-#2\@nil{%
@@ -912,7 +912,7 @@ For each solution and configuration (outside sandbox, inside sandbox, inside san
 
 The Tables contain (for both real time and CPU time) the mean time from these 10 runs i.e. $\mu = \frac{1}{N} \sum_{i=1}^N x_i$ (where $N = 10$ and $x_1, \ldots, x_N$ are the measured times), standard deviation i.e. $\sigma = \sqrt{\frac{1}{N} \sum_{i=1}^N (x_i - \mu)^2}$, and standard error on the mean i.e. $\sigma_{\bar{x}} = \frac{\sigma}{\sqrt{N}}$.
 
-The plots illustrate the distribution of the measured times i.e. distribution of values $x_1, \ldots, x_{10}$ for each configuration. Elements of the plots are described in the Figure~\ref{figure:plot_legend}.
+The plots illustrate the distribution of the measured times i.e. distribution of values $x_1, \ldots, x_{10}$ for each configuration. Elements of the plots are described in the Figure~\ref{figure:plot_legend}. The x-axis is logarithmic to better illustrate both small values and large values and differences between similar values on a single plot. This is not ideal but helps considerably.
 
 \subsection{Compilation}
 
@@ -1037,13 +1037,13 @@ compilation without the sandbox. In the compilation, most of the time, the slowd
 
 Running model solution programs, most of the time, showed no statistical difference if performed inside or without the sandbox. However, on one test the slowdown was 19\% and on some medium tests there was a speed up of up to 44\% when run inside the sandbox compared to without it. The speed up was unexpected and requires further investigation.
 
-Handling the simplest sandboxing request inside the sandbox takes below 3 ms in our tests. It is around 239\% time of handling the request without the sandbox. \textit{nsjail} in comparison is 4.4 times slower than our sandbox in handling the simplest requests.
+Handling the simplest sandboxing request inside the sandbox takes below 3 ms in our tests. It is 2.39 times slower than handling the request without the sandbox. \textit{nsjail} in comparison is 4.4 times slower than our sandbox in handling the simplest requests.
 
 All in all, the goal of the thesis was achieved although with higher overheads than anticipated. However, the overheads are within the acceptable margin.
 
 \section{Future work}\label{chapter:future_work}
 
-There are several aspects that can be worked upon. Each of a different degree of difficulty.
+There are several aspects that can be worked upon, each of a different degree of difficulty.
 
 \subsection{CPU affinity}
 
